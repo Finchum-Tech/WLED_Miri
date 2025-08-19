@@ -242,8 +242,15 @@
 #include "../usermods/LD2410_v2/usermod_ld2410.h"
 #endif
 
+#ifdef USERMOD_PCA9634
+  #include "usermod_pca9634.cpp"
+#endif
+
 void registerUsermods()
 {
+    #ifdef USERMOD_PCA9634
+    usermods.add(new UsermodPCA9634());
+  #endif
 /*
    * Add your usermod class name here
    * || || ||
