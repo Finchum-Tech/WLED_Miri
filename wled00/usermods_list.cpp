@@ -243,13 +243,13 @@
 #endif
 
 #ifdef USERMOD_PCA9634
-  #include "usermod_pca9634.cpp"
+  #include "../usermods/usermod_v2_pca9634/usermod_v2_pca9634.h"
 #endif
 
 void registerUsermods()
 {
-    #ifdef USERMOD_PCA9634
-    usermods.add(new UsermodPCA9634());
+  #ifdef USERMOD_PCA9634
+  UsermodManager::add(new UsermodPCA9634());
   #endif
 /*
    * Add your usermod class name here

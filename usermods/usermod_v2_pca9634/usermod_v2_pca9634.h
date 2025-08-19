@@ -11,30 +11,31 @@
  * - Future: expose as a "LED type" device (placeholder hook noted below).
  */
 
-#ifndef USERMOD_ID_PCA9634
-#define USERMOD_ID_PCA9634 0x13A5  // arbitrary unique ID
-#endif
+// #ifndef USERMOD_ID_PCA9634
+// #define USERMOD_ID_PCA9634 0x13A5  // arbitrary unique ID
+// #endif
 
 class UsermodPCA9634 : public Usermod {
 public:
   // ---------- compile-time config ----------
-  static constexpr uint8_t I2C_ADDR = 0x70;  // PCA9634 default base (A0..A2 strap). Change if needed.
-  static constexpr int PIN_SDA = 5;
-  static constexpr int PIN_SCL = 10;         // NOTE: often reserved; verify on your board
-  static constexpr int PIN_BLINK = 2;        // status LED
+  static constexpr uint8_t I2C_ADDR = 0x62;   // PCA9634 default base (A0..A2 strap). Change if needed.
+  static constexpr int PIN_SDA = 9;
+  static constexpr int PIN_SCL = 10;         
+  static constexpr int PIN_EN = 5;            // Buffer enable LOW = ENABLE
+  static constexpr int PIN_BLINK = 2;         // status LED
 
   // PCA9634 registers
   static constexpr uint8_t REG_MODE1   = 0x00;
   static constexpr uint8_t REG_MODE2   = 0x01;
-  static constexpr uint8_t REG_PWM0    = 0x02; // PWM0..PWM7 = 0x02..0x09
+  static constexpr uint8_t REG_PWM0    = 0x02; // PWM0..PWM3 = 0x02..0x05
   static constexpr uint8_t REG_GRPPWM  = 0x0A;
   static constexpr uint8_t REG_GRPFREQ = 0x0B;
   static constexpr uint8_t REG_LEDOUT0 = 0x0C; // LEDs 0..3
   static constexpr uint8_t REG_LEDOUT1 = 0x0D; // LEDs 4..7
 
   // startup ramp
-  static constexpr uint32_t RAMP_HALF_PERIOD_MS = 1000; // 2s up, then 2s down (startup only)
-  static constexpr uint8_t  RAMP_MAX = 63;              // ~25% of 255
+  static constexpr uint32_t RAMP_HALF_PERIOD_MS = 10000; // startup time
+  static constexpr uint8_t  RAMP_MAX = 100;              // ~25% of 255
 
 private:
   bool   _ok = false;
@@ -53,27 +54,29 @@ private:
   }
 
   void chipInit() {
+    pinMode(PIN_EN, OUTPUT);
+    digitalWrite(PIN_EN, HIGH);
     // MODE1: wake (SLEEP=0), use internal osc. 0x00 is fine for most cases.
-    i2cWrite(REG_MODE1, 0x00);
-
+    i2cWrite(REG_MODE1, 0x01);
+    
     // MODE2: OUTDRV=1 (totem-pole), INVRT=0, OCH=0 (update on ACK), OUTNE=00
     // OUTDRV bit is bit2 -> value 0x04
-    i2cWrite(REG_MODE2, 0x04);
-
+    i2cWrite(REG_MODE2, 0x14);
+    
     // LEDOUT0: set LED0..LED3 to PWM control (10b per LED) => 0b10 10 10 10 = 0xAA
     i2cWrite(REG_LEDOUT0, 0xAA);
-
-    // LEDOUT1: leave LED4..LED7 off (00) for now
-    i2cWrite(REG_LEDOUT1, 0x00);
-
+    
     // All PWM channels start at 0
-    for (uint8_t ch = 0; ch < 8; ch++) {
+    for (uint8_t ch = 0; ch < 4; ch++) {
       i2cWrite(REG_PWM0 + ch, 0x00);
     }
-
+    
     // No group dimming for now
     i2cWrite(REG_GRPPWM, 0x00);
     i2cWrite(REG_GRPFREQ, 0x00);
+
+    // Turn on buffer chip LOW is ON
+    digitalWrite(PIN_EN, LOW);
   }
 
   void setPWM(uint8_t ch, uint8_t val) {
@@ -88,30 +91,29 @@ public:
   void setup() override {
     pinMode(PIN_BLINK, OUTPUT);
     digitalWrite(PIN_BLINK, LOW);
-
+    delay(11000);
+    
     Wire.begin(PIN_SDA, PIN_SCL);
-    Wire.setClock(100000); // start conservative; you can try 400k later
-
+    Wire.setClock(400000); // start conservative; you can try 400k later
+    
     chipInit();
-
+    
     _ok = true;
     _blinkTs = millis();
     _rampTs = millis();
     _ramping = true;   // perform one up/down cycle on CH0, then stop
     _rampUp = true;
   }
-
+  
   void loop() override {
-    if (!_ok) return;
-    uint32_t now = millis();
-
     // 1) Blink GPIO2 @ 1 Hz (toggle every 500 ms)
+    uint32_t now = millis();
     if (now - _blinkTs >= 500) {
       _blinkState = !_blinkState;
       digitalWrite(PIN_BLINK, _blinkState ? HIGH : LOW);
       _blinkTs = now;
     }
-
+    
     // 2) One-time startup ramp on channel 0: 0→RAMP_MAX in 2s, then back to 0 in 2s.
     if (_ramping) {
       uint32_t elapsed = now - _rampTs;
@@ -147,7 +149,7 @@ public:
     arr.add(_ok ? F("OK") : F("Not init"));
     arr.add(F("GPIO2 blinks 1Hz"));
     arr.add(F("CH0 startup ramp to 25% in 2s (once)"));
-    arr.add(F("I2C addr 0x70 SDA=5 SCL=10"));
+    arr.add(F("I2C addr 0x62 SDA=5 SCL=10"));
   }
 
   bool readFromConfig(JsonObject&) override { return true; }
