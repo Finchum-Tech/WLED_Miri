@@ -3,53 +3,63 @@
 #include <Wire.h>
 
 /*
- * Usermod V2: PCA9632 (4-ch) — MOSFET-friendly, flare 1→100→0 over 5s
- * - I2C: SDA=9, SCL=10, addr 0x62
- * - EN on GPIO5 (LOW = enable)
- * - MODE2: INVRT=1, OUTDRV=1, DMBLNK=0 (group dim)
- * - Blink GPIO2 at 1 Hz so you know it's alive
- * - On boot: one-shot flare on PWM0, 5s total, with I2C writes capped at 100 Hz
+ * Usermod V2: PCA9632 (4-ch I2C LED driver) — cosine flare demo
+ * - I2C: SDA=9, SCL=10, addr 0x62 (8-pin PCA9632)
+ * - EN on GPIO5 (LOW = enable external buffer/driver)
+ * - Outputs: Totem-pole + INVERTED (MODE2=0x14) for low-side MOSFETs
+ * - Group dimming/blink registers are NOT written (we ignore GRP features)
+ * - Startup & periodic flare on CH0 using cosine/ease curve: 1 → 100 → 0 over 5 s
+ * - Flare repeats every FLARE_INTERVAL_MS
+ * - I2C writes are rate-limited to 100 tx/sec and only-on-change
+ * - GPIO2 heartbeat at 1 Hz for usermod liveness
  */
 
 #ifndef USERMOD_ID_PCA9632
-#define USERMOD_ID_PCA9632 0x54
+#define USERMOD_ID_PCA9632 0x13A4
 #endif
 
 class UsermodPCA9632 : public Usermod {
 public:
-  // Pins & address
+  // ---- pins & address ----
   static constexpr uint8_t I2C_ADDR = 0x62;
-  static constexpr int PIN_SDA   = 9;
-  static constexpr int PIN_SCL   = 10;
-  static constexpr int PIN_EN    = 5;   // external buffer enable (LOW = on)
-  static constexpr int PIN_BLINK = 2;
+  static constexpr int     PIN_SDA   = 9;
+  static constexpr int     PIN_SCL   = 10;
+  static constexpr int     PIN_EN    = 5;   // LOW = enable
+  static constexpr int     PIN_BLINK = 2;   // heartbeat LED
 
-  // PCA9632 registers
+  // ---- PCA9632 registers ----
   static constexpr uint8_t REG_MODE1   = 0x00;
   static constexpr uint8_t REG_MODE2   = 0x01;
-  static constexpr uint8_t REG_PWM0    = 0x02; // ..PWM3 = 0x05
-  static constexpr uint8_t REG_GRPPWM  = 0x06;
-  static constexpr uint8_t REG_GRPFREQ = 0x07;
+  static constexpr uint8_t REG_PWM0    = 0x02; // PWM0..PWM3 = 0x02..0x05
   static constexpr uint8_t REG_LEDOUT  = 0x08;
+  // NOTE: We intentionally do NOT touch REG_GRPPWM (0x06) or REG_GRPFREQ (0x07)
 
-  // Flare: 5s total, 2.5s up then 2.5s down
-  static constexpr uint32_t FLARE_TOTAL_MS = 5000;
-  static constexpr uint32_t FLARE_HALF_MS  = FLARE_TOTAL_MS/2;
-  static constexpr uint8_t  FLARE_MIN      = 0;   // 1..100..0
-  static constexpr uint8_t  FLARE_PEAK     = 100;
+  // ---- flare timing/shape ----
+  static constexpr uint32_t FLARE_TOTAL_MS = 5000;        // 5 s total
+  static constexpr uint32_t FLARE_HALF_MS  = FLARE_TOTAL_MS / 2; // 2.5 s up/down
+  static constexpr uint8_t  FLARE_MIN      = 1;           // start at 1 (not 0)
+  static constexpr uint8_t  FLARE_PEAK     = 100;         // peak at 100
 
-  // I2C rate limit: 100 tx/sec
-  static constexpr uint32_t I2C_MIN_INTERVAL_MS = 10;
+  // Trigger a new flare every X ms 
+  static constexpr uint32_t FLARE_INTERVAL_MS = 7000;
+
+  // ---- I2C rate limiting ----
+  static constexpr uint32_t I2C_MIN_INTERVAL_MS = 10;     // 100 tx/sec
 
 private:
-  // Runtime
+  // runtime state
   bool     _i2cOk = false;
+
+  // heartbeat
   bool     _blink = false;
   uint32_t _blinkTs = 0;
 
+  // flare schedule/state
   bool     _flareActive = false;
   uint32_t _flareStart  = 0;
+  uint32_t _lastFlareTrigger = 0;
 
+  // write throttle
   uint8_t  _lastPwm0 = 255;
   uint32_t _lastI2cTs = 0;
 
@@ -60,10 +70,13 @@ private:
     Wire.write(val);
     Wire.endTransmission();
   }
+
   inline bool i2cBudget(uint32_t now) {
     if (now - _lastI2cTs < I2C_MIN_INTERVAL_MS) return false;
-    _lastI2cTs = now; return true;
+    _lastI2cTs = now;
+    return true;
   }
+
   inline void setPWM0_ifNeeded(uint8_t v, uint32_t now) {
     if (v == _lastPwm0) return;
     if (!i2cBudget(now)) return;
@@ -72,59 +85,64 @@ private:
   }
 
   void chipInit() {
-    // keep external buffer off while configuring
+    // keep buffer disabled while configuring
     pinMode(PIN_EN, OUTPUT);
     digitalWrite(PIN_EN, HIGH); // HIGH = disable
 
-    // Wake, internal osc
+    // MODE1: wake (SLEEP=0). We leave all call/subaddress bits at reset defaults.
     i2cWrite(REG_MODE1, 0x00);
 
-    // MODE2: DMBLNK=0 (group DIM), INVRT=1, OUTDRV=1, OCH=0, OUTNE=00 -> 0x14
+    // MODE2: DMBLNK=0 (group dim path unused), INVRT=1, OUTDRV=1, OCH=0, OUTNE=00 => 0x14
     i2cWrite(REG_MODE2, 0x14);
 
-    // LEDOUT: all 4 channels = individual PWM (10b) -> 0xAA
+    // LEDOUT: all 4 channels under individual PWM control -> 0xAA
     i2cWrite(REG_LEDOUT, 0xAA);
 
-    // Clear PWMs
-    for (uint8_t ch=0; ch<4; ch++) i2cWrite(REG_PWM0 + ch, 0x00);
+    // clear PWM channels
+    for (uint8_t ch = 0; ch < 4; ch++) i2cWrite(REG_PWM0 + ch, 0x00);
 
-    // Group dim enabled, not blinking
-    i2cWrite(REG_GRPPWM,  0xFF); // full global scale
-    i2cWrite(REG_GRPFREQ, 0x00); // no blink
-
-    // enable external buffer/driver *before* starting flare
+    // enable external buffer/driver
     digitalWrite(PIN_EN, LOW); // LOW = enable
   }
 
-  // triangle 1→100→0 across 5s
+  // Cosine ease up/down:
+  // up   (u in 0..1): v = MIN + (PEAK-MIN) * 0.5 * (1 - cos(pi*u))
+  // down (u in 0..1): v =       PEAK      * 0.5 * (1 + cos(pi*u))
   bool runFlare(uint32_t now) {
     const uint32_t t = now - _flareStart;
-    if (t >= FLARE_TOTAL_MS) { setPWM0_ifNeeded(0, now); return false; }
+    if (t >= FLARE_TOTAL_MS) {
+      setPWM0_ifNeeded(0, now);
+      return false; // finished
+    }
 
     uint8_t v;
     if (t < FLARE_HALF_MS) {
-      // up: 1..100
-      v = (uint8_t)(FLARE_MIN + (uint32_t) (FLARE_PEAK - FLARE_MIN) * t / FLARE_HALF_MS);
+      // up phase
+      float u = t / (float)FLARE_HALF_MS;              // 0..1
+      float eased = 0.5f * (1.0f - cosf(3.14159265f * u));
+      float out = FLARE_MIN + (FLARE_PEAK - FLARE_MIN) * eased;
+      v = (uint8_t)lroundf(out);
     } else {
-      // down: 100..0
-      const uint32_t td = t - FLARE_HALF_MS;
-      v = (uint8_t)(FLARE_PEAK - (uint32_t) (FLARE_PEAK) * td / FLARE_HALF_MS);
+      // down phase
+      float u = (t - FLARE_HALF_MS) / (float)FLARE_HALF_MS;  // 0..1
+      float eased = 0.5f * (1.0f + cosf(3.14159265f * u));
+      float out = FLARE_PEAK * eased;                 // returns to ~0
+      v = (uint8_t)lroundf(out);
     }
+
     setPWM0_ifNeeded(v, now);
     return true;
   }
 
 public:
+  // ---- V2 API ----
   uint16_t getId() override { return USERMOD_ID_PCA9632; }
 
   void setup() override {
-    // status LED
+    // heartbeat LED
     pinMode(PIN_BLINK, OUTPUT);
     digitalWrite(PIN_BLINK, LOW);
     _blinkTs = millis();
-
-    // (Optional tiny guard if your board is touchy at boot)
-    delay(1000);
 
     // I2C
     Wire.begin(PIN_SDA, PIN_SCL);
@@ -134,42 +152,54 @@ public:
     Wire.beginTransmission(I2C_ADDR);
     _i2cOk = (Wire.endTransmission() == 0);
 
-delay(1);
-
     if (_i2cOk) {
       chipInit();
-      _flareActive = true;
-      _flareStart  = millis();
-      _lastPwm0    = 255;    // force first write
-      _lastI2cTs   = 0;
+      // start first flare immediately
+      _flareActive      = true;
+      _flareStart       = millis();
+      _lastFlareTrigger = _flareStart;
+      _lastPwm0         = 255;   // force first write
+      _lastI2cTs        = 0;
     }
   }
 
   void loop() override {
     const uint32_t now = millis();
 
-    // heartbeat (always)
+    // 1) heartbeat (always)
     if (now - _blinkTs >= 500) {
       _blink = !_blink;
-      digitalWrite(PIN_BLINK, _blink ? HIGH : LOW); // invert if your LED is active-low
+      digitalWrite(PIN_BLINK, _blink ? HIGH : LOW); // flip if your LED is active-low
       _blinkTs = now;
     }
 
     if (!_i2cOk) return;
 
+    // 2) trigger flare periodically (every FLARE_INTERVAL_MS) when idle
+    if (!_flareActive && (now - _lastFlareTrigger >= FLARE_INTERVAL_MS)) {
+      _flareActive      = true;
+      _flareStart       = now;
+      _lastFlareTrigger = now;
+    }
+
+    // 3) run active flare
     if (_flareActive) {
-      _flareActive = runFlare(now);
+      if (!runFlare(now)) {
+        _flareActive = false; // finished; waits until next interval to restart
+      }
     }
   }
 
   void addToJsonInfo(JsonObject& root) override {
-    JsonObject u = root["u"]; if (u.isNull()) u = root.createNestedObject("u");
+    JsonObject u = root["u"];
+    if (u.isNull()) u = root.createNestedObject("u");
     JsonArray arr = u.createNestedArray(F("PCA9632"));
     arr.add(_i2cOk ? F("OK") : F("I2C not found"));
     arr.add(F("GPIO2 blink 1Hz"));
-    arr.add(F("PWM0 flare 1→100→0 over 5s"));
+    arr.add(F("Cosine flare CH0: 1→100→0 over 5s"));
+    arr.add(F("Repeats every 5s"));
     arr.add(F("I2C 0x62 SDA=9 SCL=10; EN=5 (LOW=on)"));
-    arr.add(F("MODE2: Totem+Invert, Group dim ON"));
+    arr.add(F("MODE2: Totem+Invert; GRP regs untouched"));
   }
 
   bool readFromConfig(JsonObject&) override { return true; }
