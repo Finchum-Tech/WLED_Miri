@@ -243,20 +243,21 @@
 #endif
 
 #ifdef USERMOD_PCA9634
-  #include "../usermods/usermod_v2_pca9634/usermod_v2_pca9634.h"
+  #include "../usermods/usermod_v2_pca9632/usermod_v2_pca9632.h"
 #endif
 
 void registerUsermods()
 {
+  /*
+  * Add your usermod class name here
+  * || || ||
+  * \/ \/ \/
+  */
+ //UsermodManager::add(new MyExampleUsermod());
+ 
   #ifdef USERMOD_PCA9634
-  UsermodManager::add(new UsermodPCA9634());
+  UsermodManager::add(new UsermodPCA9632());
   #endif
-/*
-   * Add your usermod class name here
-   * || || ||
-   * \/ \/ \/
-   */
-  //UsermodManager::add(new MyExampleUsermod());
 
   #ifdef USERMOD_BATTERY
   UsermodManager::add(new UsermodBattery());
