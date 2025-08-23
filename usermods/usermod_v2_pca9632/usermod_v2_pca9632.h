@@ -35,16 +35,16 @@ public:
   // NOTE: We intentionally do NOT touch REG_GRPPWM (0x06) or REG_GRPFREQ (0x07)
 
   // ---- flare timing/shape ----
-  static constexpr uint32_t FLARE_TOTAL_MS = 5000;        // 5 s total
-  static constexpr uint32_t FLARE_HALF_MS  = FLARE_TOTAL_MS / 2; // 2.5 s up/down
-  static constexpr uint8_t  FLARE_MIN      = 1;           // start at 1 (not 0)
-  static constexpr uint8_t  FLARE_PEAK     = 100;         // peak at 100
+  static constexpr uint32_t FLARE_TOTAL_MS = 5000;        
+  static constexpr uint32_t FLARE_HALF_MS  = FLARE_TOTAL_MS / 2; 
+  static constexpr uint8_t  FLARE_MIN      = 1;           
+  static constexpr uint8_t  FLARE_PEAK     = 100;         
 
   // Trigger a new flare every X ms 
   static constexpr uint32_t FLARE_INTERVAL_MS = 7000;
 
   // ---- I2C rate limiting ----
-  static constexpr uint32_t I2C_MIN_INTERVAL_MS = 10;     // 100 tx/sec
+  static constexpr uint32_t I2C_MIN_INTERVAL_MS = 10;     
 
 private:
   // runtime state
@@ -90,7 +90,7 @@ private:
     digitalWrite(PIN_EN, HIGH); // HIGH = disable
 
     // MODE1: wake (SLEEP=0). We leave all call/subaddress bits at reset defaults.
-    i2cWrite(REG_MODE1, 0x00);
+    i2cWrite(REG_MODE1, 0x01);
 
     // MODE2: DMBLNK=0 (group dim path unused), INVRT=1, OUTDRV=1, OCH=0, OUTNE=00 => 0x14
     i2cWrite(REG_MODE2, 0x14);
