@@ -124,7 +124,7 @@ public:
     _blinkTs = millis();
 
     // (Optional tiny guard if your board is touchy at boot)
-     delay(1);
+     delay(1000);
 
     // I2C
     Wire.begin(PIN_SDA, PIN_SCL);
