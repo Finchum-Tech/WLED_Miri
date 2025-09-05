@@ -2,6 +2,7 @@
 #include "wled.h"
 #include <Wire.h>
 
+
 /*
  * Usermod V2: PCA9632 (4-ch) — MOSFET-friendly, flare 1→100→0 over 5s
  * - I2C: SDA=9, SCL=10, addr 0x62
@@ -123,8 +124,8 @@ public:
     digitalWrite(PIN_BLINK, LOW);
     _blinkTs = millis();
 
-    // (Optional tiny guard if your board is touchy at boot)
-     delay(1000);
+    // (Should be optional but board is touchy)
+     delay(1);
 
     // I2C
     Wire.begin(PIN_SDA, PIN_SCL);

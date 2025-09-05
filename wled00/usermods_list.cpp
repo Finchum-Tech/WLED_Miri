@@ -242,7 +242,7 @@
 #include "../usermods/LD2410_v2/usermod_ld2410.h"
 #endif
 
-#ifdef USERMOD_PCA9634
+#ifdef USERMOD_PCA9632
   #include "../usermods/usermod_v2_pca9632/usermod_v2_pca9632.h"
 #endif
 
@@ -255,7 +255,7 @@ void registerUsermods()
   */
  //UsermodManager::add(new MyExampleUsermod());
  
-  #ifdef USERMOD_PCA9634
+  #ifdef USERMOD_PCA9632
   UsermodManager::add(new UsermodPCA9632());
   #endif
 
