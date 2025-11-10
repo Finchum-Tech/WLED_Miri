@@ -320,6 +320,10 @@
 #define TYPE_P9813               53
 #define TYPE_LPD6803             54
 #define TYPE_2PIN_MAX            63
+//I2C types (64-79)
+#define TYPE_I2C_MIN             64            // first usable I2C type
+#define TYPE_I2C_PCA9632         64            //PCA9632 I2C LED Driver (4-ch RGBW)
+#define TYPE_I2C_MAX             79            // last usable I2C type
 //Network types (master broadcast) (80-95)
 #define TYPE_VIRTUAL_MIN         80
 #define TYPE_NET_DDP_RGB         80            //network DDP RGB bus (master broadcast bus)

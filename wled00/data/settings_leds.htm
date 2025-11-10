@@ -13,7 +13,8 @@
 		// these functions correspond to C macros found in const.h
 		function gT(t)     { for (let type of d.ledTypes) if (t == type.i) return type; } // getType from available ledTypes
 		function isPWM(t)  { return gT(t).t.charAt(0) === "A"; }    // is PWM type
-		function isAna(t)  { return gT(t).t === "" || isPWM(t); }   // is analog type
+		function isI2C(t)  { return gT(t).t.charAt(0) === "I"; }   // is I2C type
+		function isAna(t)  { return gT(t).t === "" || isPWM(t) || isI2C(t); }   // is analog type
 		function isDig(t)  { return gT(t).t === "D" || isD2P(t); }  // is digital type
 		function isD2P(t)  { return gT(t).t === "2P"; }             // is digital 2 pin type
 		function isNet(t)  { return gT(t).t === "N"; }              // is network type
@@ -228,6 +229,10 @@
 						if (numPins(t) > 1) p0d = "GPIOs:";
 						off = "Dithering";
 						break;
+					case 'I': // I2C
+						p0d = "SDA "+p0d;
+						p1d = "SCL"+p1d;
+						break;
 					case 'N': // network
 						p0d = "IP address:";
 						break;
@@ -269,13 +274,13 @@
 				}
 				gId("rf"+n).onclick = mustR(t) ? (()=>{return false}) : (()=>{});           // prevent change change of "Refresh" checkmark when mandatory
 				gRGBW |= hasW(t);                                                           // RGBW checkbox
-				gId("co"+n).style.display = (isVir(t) || isAna(t)) ? "none":"inline";       // hide color order for PWM
+				gId("co"+n).style.display = (isVir(t) || isAna(t)) ? "none":"inline";       // hide color order for PWM and I2C
 				gId("dig"+n+"w").style.display = (isDig(t) && hasW(t)) ? "inline":"none";   // show swap channels dropdown
 				gId("dig"+n+"w").querySelector("[data-opt=CCT]").disabled = !hasCCT(t);     // disable WW/CW swapping	
 				if (!(isDig(t) && hasW(t))) d.Sf["WO"+n].value = 0;                         // reset swapping
-				gId("dig"+n+"c").style.display = (isAna(t)) ? "none":"inline";              // hide count for analog
+				gId("dig"+n+"c").style.display = (isAna(t)) ? "none":"inline";              // hide count for analog and I2C
 				gId("dig"+n+"r").style.display = (isVir(t)) ? "none":"inline";              // hide reversed for virtual
-				gId("dig"+n+"s").style.display = (isVir(t) || isAna(t)) ? "none":"inline";  // hide skip 1st for virtual & analog
+				gId("dig"+n+"s").style.display = (isVir(t) || isAna(t)) ? "none":"inline";  // hide skip 1st for virtual & analog & I2C
 				gId("dig"+n+"f").style.display = (isDig(t) || (isPWM(t) && maxL>2048)) ? "inline":"none"; // hide refresh (PWM hijacks reffresh for dithering on ESP32)
 				gId("dig"+n+"a").style.display = (hasW(t)) ? "inline":"none";               // auto calculate white
 				gId("dig"+n+"l").style.display = (isD2P(t) || isPWM(t)) ? "inline":"none";  // bus clock speed / PWM speed (relative) (not On/Off)

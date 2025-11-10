@@ -145,16 +145,18 @@ class Bus {
     inline  bool     containsPixel(uint16_t pix) const          { return pix >= _start && pix < _start + _len; }
 
     static inline std::vector<LEDType> getLEDTypes()            { return {{TYPE_NONE, "", PSTR("None")}}; } // not used. just for reference for derived classes
-    static constexpr unsigned getNumberOfPins(uint8_t type)     { return isVirtual(type) ? 4 : isPWM(type) ? numPWMPins(type) : is2Pin(type) + 1; } // credit @PaoloTK
+    static constexpr unsigned getNumberOfPins(uint8_t type)     { return isVirtual(type) ? 4 : isI2C(type) ? 3 : isPWM(type) ? numPWMPins(type) : is2Pin(type) + 1; } // credit @PaoloTK (I2C: SDA, SCL, Enable)
     static constexpr unsigned getNumberOfChannels(uint8_t type) { return hasWhite(type) + 3*hasRGB(type) + hasCCT(type); }
     static constexpr bool hasRGB(uint8_t type) {
-      return !((type >= TYPE_WS2812_1CH && type <= TYPE_WS2812_WWA) || type == TYPE_ANALOG_1CH || type == TYPE_ANALOG_2CH || type == TYPE_ONOFF);
+      return !((type >= TYPE_WS2812_1CH && type <= TYPE_WS2812_WWA) || type == TYPE_ANALOG_1CH || type == TYPE_ANALOG_2CH || type == TYPE_ONOFF) ||
+             type == TYPE_I2C_PCA9632; // I2C types with RGB
     }
     static constexpr bool hasWhite(uint8_t type) {
       return  (type >= TYPE_WS2812_1CH && type <= TYPE_WS2812_WWA) ||
               type == TYPE_SK6812_RGBW || type == TYPE_TM1814 || type == TYPE_UCS8904 ||
               type == TYPE_FW1906 || type == TYPE_WS2805 || type == TYPE_SM16825 ||        // digital types with white channel
               (type > TYPE_ONOFF && type <= TYPE_ANALOG_5CH && type != TYPE_ANALOG_3CH) || // analog types with white channel
+              type == TYPE_I2C_PCA9632 ||                                                   // I2C types with white channel
               type == TYPE_NET_DDP_RGBW || type == TYPE_NET_ARTNET_RGBW;                   // network types with white channel
     }
     static constexpr bool hasCCT(uint8_t type) {
@@ -168,6 +170,7 @@ class Bus {
     static constexpr bool  is2Pin(uint8_t type)       { return (type >= TYPE_2PIN_MIN && type <= TYPE_2PIN_MAX); }
     static constexpr bool  isOnOff(uint8_t type)      { return (type == TYPE_ONOFF); }
     static constexpr bool  isPWM(uint8_t type)        { return (type >= TYPE_ANALOG_MIN && type <= TYPE_ANALOG_MAX); }
+    static constexpr bool  isI2C(uint8_t type)        { return (type >= TYPE_I2C_MIN && type <= TYPE_I2C_MAX); }
     static constexpr bool  isVirtual(uint8_t type)    { return (type >= TYPE_VIRTUAL_MIN && type <= TYPE_VIRTUAL_MAX); }
     static constexpr bool  is16bit(uint8_t type)      { return type == TYPE_UCS8903 || type == TYPE_UCS8904 || type == TYPE_SM16825; }
     static constexpr bool  mustRefresh(uint8_t type)  { return type == TYPE_TM1814; }
@@ -301,6 +304,65 @@ class BusPwm : public Bus {
     void deallocatePins();
 };
 
+class BusI2c : public Bus {
+  public:
+    BusI2c(const BusConfig &bc);
+    ~BusI2c() { cleanup(); }
+
+    void setPixelColor(unsigned pix, uint32_t c) override;
+    uint32_t getPixelColor(unsigned pix) const override;
+    unsigned getPins(uint8_t* pinArray = nullptr) const override;
+    uint16_t getFrequency() const override { return _frequency; }
+    unsigned getBusSize() const override   { return sizeof(BusPwm); }
+    void show() override;
+    inline void cleanup() { deallocatePins(); _data = nullptr; }
+
+    static std::vector<LEDType> getLEDTypes();
+
+  private:
+    uint8_t _pins[OUTPUT_MAX_PINS];
+    uint8_t _pwmdata[OUTPUT_MAX_PINS];
+    #ifdef ARDUINO_ARCH_ESP32
+    uint8_t _ledcStart;
+    #endif
+    uint8_t _depth;
+    uint16_t _frequency;
+
+    void deallocatePins();
+};
+
+
+class BusI2C : public Bus {
+  public:
+    BusI2C(const BusConfig &bc);
+    ~BusI2C() { cleanup(); }
+
+    void setPixelColor(unsigned pix, uint32_t c) override;
+    uint32_t getPixelColor(unsigned pix) const override;
+    unsigned getPins(uint8_t* pinArray = nullptr) const override;
+    unsigned getBusSize() const override { return sizeof(BusI2C); }
+    void show() override;
+    void begin() override;
+    inline void cleanup() { deallocatePins(); _data = nullptr; }
+
+    static std::vector<LEDType> getLEDTypes();
+
+  private:
+    uint8_t _sdaPin;
+    uint8_t _sclPin;
+    uint8_t _enablePin;
+    uint8_t _i2cAddr;
+    uint8_t _pwmdata[4];  // 4 channels: R, G, B, W
+    uint8_t _lastPwm[4];
+    uint32_t _lastPushTs;
+    bool _initialized;
+
+    void deallocatePins();
+    void chipInit();
+    void i2cWrite(uint8_t reg, uint8_t val);
+    void i2cWritePWMBurst(uint8_t p0, uint8_t p1, uint8_t p2, uint8_t p3);
+    void flushIfNeeded(uint32_t now);
+};
 
 class BusOnOff : public Bus {
   public:

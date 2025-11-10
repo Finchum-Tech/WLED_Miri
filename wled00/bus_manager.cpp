@@ -20,6 +20,7 @@
 #include "pin_manager.h"
 #include "bus_manager.h"
 #include "bus_wrapper.h"
+#include <Wire.h>
 #include <bits/unique_ptr.h>
 
 extern bool cctICused;
@@ -650,6 +651,368 @@ void BusPwm::deallocatePins() {
 }
 
 
+
+BusI2c::BusI2c(const BusConfig &bc)
+: Bus(bc.type, bc.start, bc.autoWhite, 1, bc.reversed, bc.refreshReq) // hijack Off refresh flag to indicate usage of dithering
+{
+  if (!isPWM(bc.type)) return;
+  unsigned numPins = numPWMPins(bc.type);
+  [[maybe_unused]] const bool dithering = _needsRefresh;
+  _frequency = bc.frequency ? bc.frequency : WLED_PWM_FREQ;
+  // duty cycle resolution (_depth) can be extracted from this formula: CLOCK_FREQUENCY > _frequency * 2^_depth
+  for (_depth = MAX_BIT_WIDTH; _depth > 8; _depth--) if (((CLOCK_FREQUENCY/_frequency) >> _depth) > 0) break;
+
+  managed_pin_type pins[numPins];
+  for (unsigned i = 0; i < numPins; i++) pins[i] = {(int8_t)bc.pins[i], true};
+  if (!PinManager::allocateMultiplePins(pins, numPins, PinOwner::BusPwm)) return;
+
+#ifdef ESP8266
+  analogWriteRange((1<<_depth)-1);
+  analogWriteFreq(_frequency);
+#else
+  // for 2 pin PWM CCT strip pinManager will make sure both LEDC channels are in the same speed group and sharing the same timer
+  _ledcStart = PinManager::allocateLedc(numPins);
+  if (_ledcStart == 255) { //no more free LEDC channels
+    PinManager::deallocateMultiplePins(pins, numPins, PinOwner::BusPwm);
+    return;
+  }
+  // if _needsRefresh is true (UI hack) we are using dithering (credit @dedehai & @zalatnaicsongor)
+  if (dithering) _depth = 12; // fixed 8 bit depth PWM with 4 bit dithering (ESP8266 has no hardware to support dithering)
+#endif
+
+  for (unsigned i = 0; i < numPins; i++) {
+    _pins[i] = bc.pins[i]; // store only after allocateMultiplePins() succeeded
+    #ifdef ESP8266
+    pinMode(_pins[i], OUTPUT);
+    #else
+    unsigned channel = _ledcStart + i;
+    ledcSetup(channel, _frequency, _depth - (dithering*4)); // with dithering _frequency doesn't really matter as resolution is 8 bit
+    ledcAttachPin(_pins[i], channel);
+    // LEDC timer reset credit @dedehai
+    uint8_t group = (channel / 8), timer = ((channel / 2) % 4); // same fromula as in ledcSetup()
+    ledc_timer_rst((ledc_mode_t)group, (ledc_timer_t)timer); // reset timer so all timers are almost in sync (for phase shift)
+    #endif
+  }
+  _hasRgb = hasRGB(bc.type);
+  _hasWhite = hasWhite(bc.type);
+  _hasCCT = hasCCT(bc.type);
+  _data = _pwmdata; // avoid malloc() and use already allocated memory
+  _valid = true;
+  DEBUGBUS_PRINTF_P(PSTR("%successfully inited PWM strip with type %u, frequency %u, bit depth %u and pins %u,%u,%u,%u,%u\n"), _valid?"S":"Uns", bc.type, _frequency, _depth, _pins[0], _pins[1], _pins[2], _pins[3], _pins[4]);
+}
+
+void BusI2c::setPixelColor(unsigned pix, uint32_t c) {
+  if (pix != 0 || !_valid) return; //only react to first pixel
+  if (_type != TYPE_ANALOG_3CH) c = autoWhiteCalc(c);
+  if (Bus::_cct >= 1900 && (_type == TYPE_ANALOG_3CH || _type == TYPE_ANALOG_4CH)) {
+    c = colorBalanceFromKelvin(Bus::_cct, c); //color correction from CCT
+  }
+  uint8_t r = R(c);
+  uint8_t g = G(c);
+  uint8_t b = B(c);
+  uint8_t w = W(c);
+
+  switch (_type) {
+    case TYPE_ANALOG_1CH: //one channel (white), relies on auto white calculation
+      _data[0] = w;
+      break;
+    case TYPE_ANALOG_2CH: //warm white + cold white
+      if (cctICused) {
+        _data[0] = w;
+        _data[1] = Bus::_cct < 0 || Bus::_cct > 255 ? 127 : Bus::_cct;
+      } else {
+        Bus::calculateCCT(c, _data[0], _data[1]);
+      }
+      break;
+    case TYPE_ANALOG_5CH: //RGB + warm white + cold white
+      if (cctICused)
+        _data[4] = Bus::_cct < 0 || Bus::_cct > 255 ? 127 : Bus::_cct;
+      else
+        Bus::calculateCCT(c, w, _data[4]);
+    case TYPE_ANALOG_4CH: //RGBW
+      _data[3] = w;
+    case TYPE_ANALOG_3CH: //standard dumb RGB
+      _data[0] = r; _data[1] = g; _data[2] = b;
+      break;
+  }
+}
+
+//does no index check
+uint32_t BusI2c::getPixelColor(unsigned pix) const {
+  if (!_valid) return 0;
+  // TODO getting the reverse from CCT is involved (a quick approximation when CCT blending is ste to 0 implemented)
+  switch (_type) {
+    case TYPE_ANALOG_1CH: //one channel (white), relies on auto white calculation
+      return RGBW32(0, 0, 0, _data[0]);
+    case TYPE_ANALOG_2CH: //warm white + cold white
+      if (cctICused) return RGBW32(0, 0, 0, _data[0]);
+      else           return RGBW32(0, 0, 0, _data[0] + _data[1]);
+    case TYPE_ANALOG_5CH: //RGB + warm white + cold white
+      if (cctICused) return RGBW32(_data[0], _data[1], _data[2], _data[3]);
+      else           return RGBW32(_data[0], _data[1], _data[2], _data[3] + _data[4]);
+    case TYPE_ANALOG_4CH: //RGBW
+      return RGBW32(_data[0], _data[1], _data[2], _data[3]);
+    case TYPE_ANALOG_3CH: //standard dumb RGB
+      return RGBW32(_data[0], _data[1], _data[2], 0);
+  }
+  return RGBW32(_data[0], _data[0], _data[0], _data[0]);
+}
+
+void BusI2c::show() {
+  if (!_valid) return;
+  // if _needsRefresh is true (UI hack) we are using dithering (credit @dedehai & @zalatnaicsongor)
+  // https://github.com/Aircoookie/WLED/pull/4115 and https://github.com/zalatnaicsongor/WLED/pull/1)
+  const bool     dithering = _needsRefresh; // avoid working with bitfield
+  const unsigned numPins = getPins();
+  const unsigned maxBri = (1<<_depth);      // possible values: 16384 (14), 8192 (13), 4096 (12), 2048 (11), 1024 (10), 512 (9) and 256 (8) 
+  [[maybe_unused]] const unsigned bitShift = dithering * 4;  // if dithering, _depth is 12 bit but LEDC channel is set to 8 bit (using 4 fractional bits)
+
+  // use CIE brightness formula (linear + cubic) to approximate human eye perceived brightness
+  // see: https://en.wikipedia.org/wiki/Lightness
+  unsigned pwmBri = _bri;
+  if (pwmBri < 21) {                                   // linear response for values [0-20]
+    pwmBri = (pwmBri * maxBri + 2300 / 2) / 2300 ;     // adding '0.5' before division for correct rounding, 2300 gives a good match to CIE curve
+  } else {                                             // cubic response for values [21-255]
+    float temp = float(pwmBri + 41) / float(255 + 41); // 41 is to match offset & slope to linear part
+    temp = temp * temp * temp * (float)maxBri;
+    pwmBri = (unsigned)temp;                           // pwmBri is in range [0-maxBri] C
+  }
+
+  [[maybe_unused]] unsigned hPoint = 0;  // phase shift (0 - maxBri)
+  // we will be phase shifting every channel by previous pulse length (plus dead time if required)
+  // phase shifting is only mandatory when using H-bridge to drive reverse-polarity PWM CCT (2 wire) LED type 
+  // CCT additive blending must be 0 (WW & CW will not overlap) otherwise signals *will* overlap
+  // for all other cases it will just try to "spread" the load on PSU
+  // Phase shifting requires that LEDC timers are synchronised (see setup()). For PWM CCT (and H-bridge) it is
+  // also mandatory that both channels use the same timer (pinManager takes care of that).
+  for (unsigned i = 0; i < numPins; i++) {
+    unsigned duty = (_data[i] * pwmBri) / 255;    
+    #ifdef ESP8266
+    if (_reversed) duty = maxBri - duty;
+    analogWrite(_pins[i], duty);
+    #else
+    int deadTime = 0;
+    if (_type == TYPE_ANALOG_2CH && Bus::getCCTBlend() == 0) {
+      // add dead time between signals (when using dithering, two full 8bit pulses are required)
+      deadTime = (1+dithering) << bitShift;
+      // we only need to take care of shortening the signal at (almost) full brightness otherwise pulses may overlap
+      if (_bri >= 254 && duty >= maxBri / 2 && duty < maxBri) duty -= deadTime << 1; // shorten duty of larger signal except if full on
+      if (_reversed) deadTime = -deadTime; // need to invert dead time to make phaseshift go the opposite way so low signals dont overlap
+    }
+    if (_reversed) duty = maxBri - duty;
+    unsigned channel = _ledcStart + i;
+    unsigned gr = channel/8;  // high/low speed group
+    unsigned ch = channel%8;  // group channel
+    // directly write to LEDC struct as there is no HAL exposed function for dithering
+    // duty has 20 bit resolution with 4 fractional bits (24 bits in total)
+    LEDC.channel_group[gr].channel[ch].duty.duty = duty << ((!dithering)*4);  // lowest 4 bits are used for dithering, shift by 4 bits if not using dithering
+    LEDC.channel_group[gr].channel[ch].hpoint.hpoint = hPoint >> bitShift;    // hPoint is at _depth resolution (needs shifting if dithering)
+    ledc_update_duty((ledc_mode_t)gr, (ledc_channel_t)ch);
+    hPoint += duty + deadTime;        // offset to cascade the signals
+    if (hPoint >= maxBri) hPoint = 0; // offset it out of bounds, reset
+    #endif
+  }
+}
+
+unsigned BusI2c::getPins(uint8_t* pinArray) const {
+  if (!_valid) return 0;
+  unsigned numPins = numPWMPins(_type);
+  if (pinArray) for (unsigned i = 0; i < numPins; i++) pinArray[i] = _pins[i];
+  return numPins;
+}
+
+// credit @willmmiles & @netmindz https://github.com/Aircoookie/WLED/pull/4056
+std::vector<LEDType> BusI2c::getLEDTypes() {
+  return {
+    {TYPE_ANALOG_1CH, "A",      PSTR("PWM White")},
+    {TYPE_ANALOG_2CH, "AA",     PSTR("PWM CCT")},
+    {TYPE_ANALOG_3CH, "AAA",    PSTR("PWM RGB")},
+    {TYPE_ANALOG_4CH, "AAAA",   PSTR("PWM RGBW")},
+    {TYPE_ANALOG_5CH, "AAAAA",  PSTR("PWM RGB+CCT")},
+    //{TYPE_ANALOG_6CH, "AAAAAA", PSTR("PWM RGB+DCCT")}, // unimplementable ATM
+  };
+}
+
+void BusI2c::deallocatePins() {
+  unsigned numPins = getPins();
+  for (unsigned i = 0; i < numPins; i++) {
+    PinManager::deallocatePin(_pins[i], PinOwner::BusPwm);
+    if (!PinManager::isPinOk(_pins[i])) continue;
+    #ifdef ESP8266
+    digitalWrite(_pins[i], LOW); //turn off PWM interrupt
+    #else
+    if (_ledcStart < WLED_MAX_ANALOG_CHANNELS) ledcDetachPin(_pins[i]);
+    #endif
+  }
+  #ifdef ARDUINO_ARCH_ESP32
+  PinManager::deallocateLedc(_ledcStart, numPins);
+  #endif
+}
+
+
+
+
+// PCA9632 I2C LED Driver bus implementation
+BusI2C::BusI2C(const BusConfig &bc)
+: Bus(bc.type, bc.start, bc.autoWhite, 1, bc.reversed)
+, _sdaPin(bc.pins[0])
+, _sclPin(bc.pins[1])
+, _enablePin(5)
+, _i2cAddr(0x62)  // default 0x62 (98 decimal), can be configured via pins[3]
+, _lastPushTs(0)
+, _initialized(false)
+{
+  if (!Bus::isI2C(bc.type)) return;
+
+  // I2C pins don't need allocation (they're shared), but enable pin does
+  if (_enablePin < 255) {
+    if (!PinManager::allocatePin(_enablePin, true, PinOwner::BusPwm)) { // reuse BusPwm owner for now
+      return;
+    }
+    pinMode(_enablePin, OUTPUT);
+    digitalWrite(_enablePin, HIGH); // HIGH = disable (keep off during init)
+  }
+
+  _hasRgb = true;
+  _hasWhite = true;
+  _hasCCT = false;
+  _data = _pwmdata;
+  _valid = true; // will be set properly in begin()
+  
+  // Initialize PWM data
+  for (int i = 0; i < 4; i++) {
+    _pwmdata[i] = 0;
+    _lastPwm[i] = 255; // force first write
+  }
+  
+  DEBUGBUS_PRINTF_P(PSTR("Bus: Creating PCA9632 I2C bus (SDA:%u, SCL:%u, EN:%u, ADDR:0x%02X)\n"), 
+                     _sdaPin, _sclPin, _enablePin, _i2cAddr);
+}
+
+void BusI2C::begin() {
+  if (!_valid) return;
+  
+  // Initialize I2C
+  Wire.begin(_sdaPin, _sclPin);
+  Wire.setClock(400000); // 400kHz
+  
+  // Probe device
+  Wire.beginTransmission(_i2cAddr);
+  if (Wire.endTransmission() == 0) {
+    chipInit();
+    _initialized = true;
+    DEBUGBUS_PRINTLN(F("Bus: PCA9632 initialized successfully"));
+  } else {
+    _initialized = false;
+    _valid = false;
+    DEBUGBUS_PRINTLN(F("Bus: PCA9632 I2C device not found"));
+  }
+}
+
+void BusI2C::chipInit() {
+  // PCA9632 registers
+  constexpr uint8_t REG_MODE1   = 0x00;
+  constexpr uint8_t REG_MODE2   = 0x01;
+  constexpr uint8_t REG_PWM0    = 0x02; // ..PWM3 = 0x05
+  constexpr uint8_t REG_LEDOUT  = 0x08;
+  
+  // MODE1: normal (osc on)
+  i2cWrite(REG_MODE1, 0x00);
+  
+  // MODE2: DMBLNK=0 (no group blink), INVRT=1, OUTDRV=1, OCH=0, OUTNE=00 -> 0x14
+  i2cWrite(REG_MODE2, 0x14);
+  
+  // LEDOUT: all 4 channels = individual PWM (10b per LED = 0xAA)
+  i2cWrite(REG_LEDOUT, 0xAA);
+  
+  // Clear PWMs
+  i2cWritePWMBurst(0, 0, 0, 0);
+  for (int i = 0; i < 4; i++) _lastPwm[i] = 0;
+  
+  // Enable external driver if enable pin is configured
+  if (_enablePin < 255) {
+    digitalWrite(_enablePin, LOW); // LOW = enable
+  }
+}
+
+void BusI2C::i2cWrite(uint8_t reg, uint8_t val) {
+  Wire.beginTransmission(_i2cAddr);
+  Wire.write(reg);
+  Wire.write(val);
+  Wire.endTransmission();
+}
+
+void BusI2C::i2cWritePWMBurst(uint8_t p0, uint8_t p1, uint8_t p2, uint8_t p3) {
+  // Control byte: auto-increment from PWM0 (AI=101, D=0x2) = 0xA2
+  constexpr uint8_t CTRL_AI_INDIV_PWM_FROM_PWM0 = 0xA2;
+  Wire.beginTransmission(_i2cAddr);
+  Wire.write(CTRL_AI_INDIV_PWM_FROM_PWM0);
+  Wire.write(p0);
+  Wire.write(p1);
+  Wire.write(p2);
+  Wire.write(p3);
+  Wire.endTransmission(); // OCH=0 => latch on STOP (all 4 update together)
+}
+
+void BusI2C::flushIfNeeded(uint32_t now) {
+  constexpr uint32_t I2C_MIN_INTERVAL_MS = 10; // 100 tx/s max
+  
+  if (now - _lastPushTs < I2C_MIN_INTERVAL_MS) return;
+  
+  bool any = false;
+  for (int i = 0; i < 4; i++) {
+    if (_pwmdata[i] != _lastPwm[i]) {
+      any = true;
+      break;
+    }
+  }
+  if (!any) return;
+  
+  i2cWritePWMBurst(_pwmdata[0], _pwmdata[1], _pwmdata[2], _pwmdata[3]);
+  for (int i = 0; i < 4; i++) _lastPwm[i] = _pwmdata[i];
+  _lastPushTs = now;
+}
+
+void BusI2C::setPixelColor(unsigned pix, uint32_t c) {
+  if (pix != 0 || !_valid) return; //only react to first pixel
+  c = autoWhiteCalc(c);
+  _pwmdata[0] = R(c);
+  _pwmdata[1] = G(c);
+  _pwmdata[2] = B(c);
+  _pwmdata[3] = W(c);
+}
+
+uint32_t BusI2C::getPixelColor(unsigned pix) const {
+  if (!_valid) return 0;
+  return RGBW32(_pwmdata[0], _pwmdata[1], _pwmdata[2], _pwmdata[3]);
+}
+
+void BusI2C::show() {
+  if (!_valid || !_initialized) return;
+  flushIfNeeded(millis());
+}
+
+unsigned BusI2C::getPins(uint8_t* pinArray) const {
+  if (!_valid) return 0;
+  if (pinArray) {
+    pinArray[0] = _sdaPin;
+    pinArray[1] = _sclPin;
+  }
+  return 2;
+}
+
+void BusI2C::deallocatePins() {
+  if (_enablePin < 255) {
+    PinManager::deallocatePin(_enablePin, PinOwner::BusPwm);
+  }
+}
+
+std::vector<LEDType> BusI2C::getLEDTypes() {
+  return {
+    {TYPE_I2C_PCA9632, "I2C", PSTR("PCA9632 I2C RGBW")},
+  };
+}
+
 BusOnOff::BusOnOff(const BusConfig &bc)
 : Bus(bc.type, bc.start, bc.autoWhite, 1, bc.reversed)
 , _onoffdata(0)
@@ -838,6 +1201,9 @@ int BusManager::add(const BusConfig &bc) {
   } else if (Bus::isOnOff(bc.type)) {
     //busses.push_back(std::make_unique<BusOnOff>(bc));
     busses.push_back(new BusOnOff(bc));
+  } else if (Bus::isI2C(bc.type)) {
+    //busses.push_back(std::make_unique<BusI2C>(bc));
+    busses.push_back(new BusI2C(bc));
   } else {
     //busses.push_back(std::make_unique<BusPwm>(bc));
     busses.push_back(new BusPwm(bc));
@@ -862,8 +1228,9 @@ static String LEDTypesToJson(const std::vector<LEDType>& types) {
 String BusManager::getLEDTypesJSONString() {
   String json = "[";
   json += LEDTypesToJson(BusDigital::getLEDTypes());
-  json += LEDTypesToJson(BusOnOff::getLEDTypes());
   json += LEDTypesToJson(BusPwm::getLEDTypes());
+  json += LEDTypesToJson(BusI2C::getLEDTypes());
+  json += LEDTypesToJson(BusOnOff::getLEDTypes());
   json += LEDTypesToJson(BusNetwork::getLEDTypes());
   //json += LEDTypesToJson(BusVirtual::getLEDTypes());
   json.setCharAt(json.length()-1, ']'); // replace last comma with bracket

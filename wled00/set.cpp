@@ -200,7 +200,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
         freq = 0;
       }
       channelSwap = Bus::hasWhite(type) ? request->arg(wo).toInt() : 0;
-      if (Bus::isOnOff(type) || Bus::isPWM(type) || Bus::isVirtual(type)) { // analog and virtual
+      if (Bus::isOnOff(type) || Bus::isPWM(type) || Bus::isI2C(type) || Bus::isVirtual(type)) { // analog, I2C and virtual
         maPerLed = 0;
         maMax = 0;
       } else {
