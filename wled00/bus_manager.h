@@ -145,7 +145,7 @@ class Bus {
     inline  bool     containsPixel(uint16_t pix) const          { return pix >= _start && pix < _start + _len; }
 
     static inline std::vector<LEDType> getLEDTypes()            { return {{TYPE_NONE, "", PSTR("None")}}; } // not used. just for reference for derived classes
-    static constexpr unsigned getNumberOfPins(uint8_t type)     { return isVirtual(type) ? 4 : isI2C(type) ? 3 : isPWM(type) ? numPWMPins(type) : is2Pin(type) + 1; } // credit @PaoloTK (I2C: SDA, SCL, Enable)
+    static constexpr unsigned getNumberOfPins(uint8_t type)     { return isVirtual(type) ? 4 : isI2C(type) ? 0 : isPWM(type) ? numPWMPins(type) : is2Pin(type) + 1; } // credit @PaoloTK (I2C: pins statically defined)
     static constexpr unsigned getNumberOfChannels(uint8_t type) { return hasWhite(type) + 3*hasRGB(type) + hasCCT(type); }
     static constexpr bool hasRGB(uint8_t type) {
       return !((type >= TYPE_WS2812_1CH && type <= TYPE_WS2812_WWA) || type == TYPE_ANALOG_1CH || type == TYPE_ANALOG_2CH || type == TYPE_ONOFF) ||
@@ -348,10 +348,11 @@ class BusI2C : public Bus {
     static std::vector<LEDType> getLEDTypes();
 
   private:
-    uint8_t _sdaPin;
-    uint8_t _sclPin;
+    static constexpr uint8_t MIRI_INTERNAL_SDA = 9;   // Statically defined SDA pin
+    static constexpr uint8_t MIRI_INTERNAL_SCL = 10;  // Statically defined SCL pin
+    static constexpr uint8_t MIRI_PWM_ENABLE = 5;     // Statically defined enable pin
+    static constexpr uint8_t I2C_ADDR = 0x62;         // Statically defined I2C address
     uint8_t _enablePin;
-    uint8_t _i2cAddr;
     uint8_t _pwmdata[4];  // 4 channels: R, G, B, W
     uint8_t _lastPwm[4];
     uint32_t _lastPushTs;

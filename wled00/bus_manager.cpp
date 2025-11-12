@@ -855,23 +855,18 @@ void BusI2c::deallocatePins() {
 // PCA9632 I2C LED Driver bus implementation
 BusI2C::BusI2C(const BusConfig &bc)
 : Bus(bc.type, bc.start, bc.autoWhite, 1, bc.reversed)
-, _sdaPin(bc.pins[0])
-, _sclPin(bc.pins[1])
-, _enablePin(5)
-, _i2cAddr(0x62)  // default 0x62 (98 decimal), can be configured via pins[3]
+, _enablePin(MIRI_PWM_ENABLE)
 , _lastPushTs(0)
 , _initialized(false)
 {
   if (!Bus::isI2C(bc.type)) return;
 
-  // I2C pins don't need allocation (they're shared), but enable pin does
-  if (_enablePin < 255) {
-    if (!PinManager::allocatePin(_enablePin, true, PinOwner::BusPwm)) { // reuse BusPwm owner for now
-      return;
-    }
-    pinMode(_enablePin, OUTPUT);
-    digitalWrite(_enablePin, HIGH); // HIGH = disable (keep off during init)
+  // Allocate enable pin
+  if (!PinManager::allocatePin(_enablePin, true, PinOwner::BusPwm)) { // reuse BusPwm owner for now
+    return;
   }
+  pinMode(_enablePin, OUTPUT);
+  digitalWrite(_enablePin, HIGH); // HIGH = disable (keep off during init)
 
   _hasRgb = true;
   _hasWhite = true;
@@ -886,18 +881,18 @@ BusI2C::BusI2C(const BusConfig &bc)
   }
   
   DEBUGBUS_PRINTF_P(PSTR("Bus: Creating PCA9632 I2C bus (SDA:%u, SCL:%u, EN:%u, ADDR:0x%02X)\n"), 
-                     _sdaPin, _sclPin, _enablePin, _i2cAddr);
+                     MIRI_INTERNAL_SDA, MIRI_INTERNAL_SCL, _enablePin, I2C_ADDR);
 }
 
 void BusI2C::begin() {
   if (!_valid) return;
   
-  // Initialize I2C
-  Wire.begin(_sdaPin, _sclPin);
+  // Initialize I2C with statically defined pins
+  Wire.begin(MIRI_INTERNAL_SDA, MIRI_INTERNAL_SCL);
   Wire.setClock(400000); // 400kHz
   
   // Probe device
-  Wire.beginTransmission(_i2cAddr);
+  Wire.beginTransmission(I2C_ADDR);
   if (Wire.endTransmission() == 0) {
     chipInit();
     _initialized = true;
@@ -929,14 +924,12 @@ void BusI2C::chipInit() {
   i2cWritePWMBurst(0, 0, 0, 0);
   for (int i = 0; i < 4; i++) _lastPwm[i] = 0;
   
-  // Enable external driver if enable pin is configured
-  if (_enablePin < 255) {
-    digitalWrite(_enablePin, LOW); // LOW = enable
-  }
+  // Enable external driver
+  digitalWrite(_enablePin, LOW); // LOW = enable
 }
 
 void BusI2C::i2cWrite(uint8_t reg, uint8_t val) {
-  Wire.beginTransmission(_i2cAddr);
+  Wire.beginTransmission(I2C_ADDR);
   Wire.write(reg);
   Wire.write(val);
   Wire.endTransmission();
@@ -945,7 +938,7 @@ void BusI2C::i2cWrite(uint8_t reg, uint8_t val) {
 void BusI2C::i2cWritePWMBurst(uint8_t p0, uint8_t p1, uint8_t p2, uint8_t p3) {
   // Control byte: auto-increment from PWM0 (AI=101, D=0x2) = 0xA2
   constexpr uint8_t CTRL_AI_INDIV_PWM_FROM_PWM0 = 0xA2;
-  Wire.beginTransmission(_i2cAddr);
+  Wire.beginTransmission(I2C_ADDR);
   Wire.write(CTRL_AI_INDIV_PWM_FROM_PWM0);
   Wire.write(p0);
   Wire.write(p1);
@@ -993,18 +986,13 @@ void BusI2C::show() {
 }
 
 unsigned BusI2C::getPins(uint8_t* pinArray) const {
-  if (!_valid) return 0;
-  if (pinArray) {
-    pinArray[0] = _sdaPin;
-    pinArray[1] = _sclPin;
-  }
-  return 2;
+  // I2C pins are statically defined, no pins to return
+  // This prevents them from showing up in the configuration UI
+  return 0;
 }
 
 void BusI2C::deallocatePins() {
-  if (_enablePin < 255) {
-    PinManager::deallocatePin(_enablePin, PinOwner::BusPwm);
-  }
+  PinManager::deallocatePin(_enablePin, PinOwner::BusPwm);
 }
 
 std::vector<LEDType> BusI2C::getLEDTypes() {

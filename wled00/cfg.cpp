@@ -170,7 +170,9 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
       if (s >= WLED_MAX_BUSSES+WLED_MIN_VIRTUAL_BUSSES) break;
       uint8_t pins[5] = {255, 255, 255, 255, 255};
       JsonArray pinArr = elm["pin"];
-      if (pinArr.size() == 0) continue;
+      uint8_t ledType = elm["type"] | TYPE_WS2812_RGB;
+      // I2C buses have 0 pins (statically defined), so allow empty pin array for I2C
+      if (pinArr.size() == 0 && !Bus::isI2C(ledType)) continue;
       //pins[0] = pinArr[0];
       unsigned i = 0;
       for (int p : pinArr) {
@@ -182,7 +184,6 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
       uint8_t skipFirst = elm[F("skip")];
       uint16_t start = elm["start"] | 0;
       if (length==0 || start + length > MAX_LEDS) continue; // zero length or we reached max. number of LEDs, just stop
-      uint8_t ledType = elm["type"] | TYPE_WS2812_RGB;
       bool reversed = elm["rev"];
       bool refresh = elm["ref"] | false;
       uint16_t freqkHz = elm[F("freq")] | 0;  // will be in kHz for DotStar and Hz for PWM
@@ -190,7 +191,7 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
       uint8_t maPerLed = elm[F("ledma")] | LED_MILLIAMPS_DEFAULT;
       uint16_t maMax = elm[F("maxpwr")] | (ablMilliampsMax * length) / total; // rough (incorrect?) per strip ABL calculation when no config exists
       // To disable brightness limiter we either set output max current to 0 or single LED current to 0 (we choose output max current)
-      if (Bus::isPWM(ledType) || Bus::isOnOff(ledType) || Bus::isVirtual(ledType)) { // analog and virtual
+      if (Bus::isPWM(ledType) || Bus::isOnOff(ledType) || Bus::isI2C(ledType) || Bus::isVirtual(ledType)) { // analog, I2C and virtual
         maPerLed = 0;
         maMax = 0;
       }
