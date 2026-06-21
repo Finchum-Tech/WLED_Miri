@@ -1,0 +1,155 @@
+{
+  "$schema": "/home/ubuntu/.cursor/plugins/cache/cursor-public/9333/e46364b8be46000b7df0f260550cd712afbb8d36/skills/orchestrate/schemas/plan.schema.json",
+  "goal": "miri-mods: Implement each WLED mod specified in docs/miri-mods/. Each worker owns one mod on its own branch from main (mod/<name>). Miri-Pwm-CHhip-Dev may be referenced for existing code but must not be used as the base branch.",
+  "summary": "Implement the 6 Miri WLED usermods, one parallel worker per mod, each shipping its own PR off main",
+  "rootSlug": "miri-mods",
+  "baseBranch": "main",
+  "prBase": "main",
+  "repoUrl": "https://github.com/Finchum-Tech/WLED_Miri",
+  "selfAgentId": "bc-04909e41-aac8-47a3-bd98-10213f73ef5a",
+  "syncStateToGit": true,
+  "acceptanceCriteria": [
+    "Each of the 6 Miri mods is implemented per its spec in docs/miri-mods/",
+    "Each mod lives on its own branch from main and ships as its own draft PR",
+    "Each mod compiles standalone with its build flag",
+    "Base WLED code preserved; Miri-Pwm-CHhip-Dev and Miri_v1.0/usermod_v2_pca9632 used as reference only, not merged or branched from"
+  ],
+  "tasks": [
+    {
+      "name": "miri-core",
+      "type": "worker",
+      "openPR": true,
+      "scopedGoal": "Implement the MiriCore WLED usermod exactly as specified in docs/miri-mods/miri-core.md (read that file first; it is authoritative). MiriCore is the integration layer for all Miri sub-mods: sub-mod registration order, Miri branding, alert management, an I2C bus broker (pin definitions only, NOT bus owner), and the miri-ui.js panel loader. Deliver the shared framework under usermods/miri/ that the other Miri mods consume: usermods/miri/miri_env.ini (PlatformIO bundle env named miri_esp32 bundling all Miri build flags), usermods/miri/miri_pins.h (abstract GPIO/I2C pin names, every define wrapped in #ifndef guards, including MIRI_I2C_SDA=21 / MIRI_I2C_SCL=22 and MIRI_LP_I2C_SDA/SCL and MIRI_PIN_ADC_FUSE), usermods/miri/miri_shared.h (a MiriState struct with at least tempCelsius, overTemp, voltageIn_mV, fuseBlown shared by sub-mods), the MiriCore usermod class (branding -> set serverDescription to \"Miri\", alert loop reading MiriState.overTemp and MiriState.fuseBlown on a configurable interval, sub-mod instantiation order Temp->Fuse->PWM->IICIe->ColorSphere, HTTP routes serving /miri-ui.js and /miri-brand.css, and a /miri/panel/[modname] fragment mechanism), and usermods/miri/data/ forked WLED web assets adding a #miri-panels div plus the miri-ui.js script tag where miri-ui.js fetches /miri/panel/[modname] fragments into #miri-panels. Use teal accent #2EB8B8 in web assets. Gate ALL Serial output behind #ifdef MIRI_DEBUG. MiriCore must own no hardware directly (broker/branding only). Preserve base WLED code; touch wled00 core minimally. Use the Miri-Pwm-CHhip-Dev branch and Miri_v1.0/usermod_v2_pca9632 ONLY as read reference (you may `git fetch` and inspect them) - never merge or branch from them; rewrite from scratch per spec. Your work must compile. Build with PlatformIO using the miri_esp32 env (e.g. `pio run -e miri_esp32`) and report the result; if the toolchain cannot be installed in your environment, still ensure the code is correct and complete and say so explicitly in your handoff Verification section.",
+      "brief": "Authoritative spec: docs/miri-mods/miri-core.md and docs/miri-mods/README.md. Build flag: -D USERMOD_MIRI. Standalone: No (integration layer). WLED registers usermods via the usermod_v2 mechanism (see usermods/EXAMPLE/usermod_v2_example.cpp and existing usermods/*/usermods_list.cpp for the registration pattern in this repo). Sub-mods remain usable standalone with their own -D flags; miri_env.ini bundles them when USERMOD_MIRI is enabled.",
+      "pathsAllowed": [
+        "usermods/miri/**",
+        "usermods/**",
+        "wled00/**",
+        "platformio.ini",
+        "platformio_override.sample.ini"
+      ],
+      "acceptance": [
+        "Compiles with -e miri_esp32 (env defined in usermods/miri/miri_env.ini)",
+        "serverDescription set to \"Miri\"; teal accent #2EB8B8 present in web assets",
+        "miri-ui.js fetches /miri/panel/[modname] fragments into #miri-panels",
+        "Alert loop reads MiriState.overTemp and MiriState.fuseBlown with configurable interval",
+        "All Serial output gated behind #ifdef MIRI_DEBUG",
+        "No direct hardware ownership in MiriCore (broker/branding only)",
+        "Branch named mod/miri-core, off main; draft PR opened against main; base WLED code preserved"
+      ],
+      "verify": "## Setup\n- Fresh clone of the branch.\n## Automated\n- Run `pio run -e miri_esp32` (env from usermods/miri/miri_env.ini) and confirm a clean build.\n## Manual\n- Inspect usermods/miri/ for miri_env.ini, miri_pins.h (#ifndef guards), miri_shared.h (MiriState), the MiriCore usermod, and usermods/miri/data/ web assets with #miri-panels + miri-ui.js.\n## Gotchas\n- MiriCore must not own hardware. All Serial behind MIRI_DEBUG. Do not merge/branch from Miri-Pwm-CHhip-Dev or Miri_v1.0."
+    },
+    {
+      "name": "temp-sensor",
+      "type": "worker",
+      "openPR": true,
+      "scopedGoal": "Implement the MiriTempSensor WLED usermod exactly as specified in docs/miri-mods/temp-sensor.md (read it first; authoritative). Read the TI TMP1075NDRLR (U6) over I2C at address 0x49 on the main bus (SDA IO21 / SCL IO22), 12-bit temp register at 0x00 at 0.0625 C/LSB. Self-init I2C with Wire.begin(MIRI_I2C_SDA, MIRI_I2C_SCL) in setup. Write board temperature to WLED: emit \"Board Temp\" via addToJsonInfo() with an alert badge when over temperature, and serve a main-page drawer fragment at GET /miri/panel/tempsensor backed by live data from /json/info. Update MiriState.tempCelsius on each successful poll and MiriState.overTemp (true when temp > threshold, false when temp <= threshold - 2C hysteresis). Config keys: pollIntervalMs (default 2000) and overTempThreshold_C (default 70.0). The mod MUST compile and run STANDALONE with only -D USERMOD_MIRI_TEMP_SENSOR: when MiriCore is absent, define your own pin and MiriState fallbacks behind #ifndef guards (e.g. a local miri_pins.h / miri_shared.h shim) so you do not depend on the miri-core branch at build time. Probe 0x49 at boot with graceful degradation if there is no ACK. Gate all Serial behind #ifdef MIRI_DEBUG. Preserve base WLED code. Use Miri-Pwm-CHhip-Dev / Miri_v1.0 only as read reference, never merge/branch from them. Build with PlatformIO using a standalone env enabling USERMOD_MIRI_TEMP_SENSOR (e.g. via platformio_override) and report the result; if the toolchain cannot be installed, ensure correctness and say so in your Verification section.",
+      "brief": "Authoritative spec: docs/miri-mods/temp-sensor.md. Build flag: -D USERMOD_MIRI_TEMP_SENSOR. Standalone: Yes. Follow the usermod_v2 registration pattern used by existing usermods in usermods/ (see usermods/EXAMPLE and usermods/Temperature). HTTP routes can be registered in setup() via the global AsyncWebServer (`server.on(...)`).",
+      "pathsAllowed": [
+        "usermods/**",
+        "platformio.ini",
+        "platformio_override.sample.ini"
+      ],
+      "acceptance": [
+        "Compiles standalone with only USERMOD_MIRI_TEMP_SENSOR (plus pin overrides if no MiriCore)",
+        "Probes 0x49 at boot; graceful degradation if no ACK",
+        "addToJsonInfo() emits \"Board Temp\"; alert badge when overTemp",
+        "Drawer at /miri/panel/tempsensor registered and functional",
+        "MiriState.tempCelsius and overTemp updated with hysteresis",
+        "Serial gated behind MIRI_DEBUG",
+        "Branch named mod/temp-sensor, off main; draft PR opened against main"
+      ],
+      "verify": "## Setup\n- Fresh clone of the branch.\n## Automated\n- Build a standalone env with USERMOD_MIRI_TEMP_SENSOR defined (pio run) and confirm a clean build.\n## Manual\n- Confirm I2C self-init, 0x49 probe with graceful degradation, addToJsonInfo \"Board Temp\", drawer route, MiriState writes with 2C hysteresis.\n## Gotchas\n- Must build with no dependency on the miri-core branch; provide #ifndef pin/state shims. Serial behind MIRI_DEBUG."
+    },
+    {
+      "name": "fuse-monitor",
+      "type": "worker",
+      "openPR": true,
+      "scopedGoal": "Implement the MiriFuseMonitor WLED usermod exactly as specified in docs/miri-mods/fuse-monitor.md (read it first; authoritative). Sample the input supply voltage through a 43k/1.5k divider on the ADC, compute VIN in mV using VIN_mV = VADC_mV * 29.67 (divider ratio 1.5/44.5 = 0.03371), detect a fuse blow, and write MiriState.voltageIn_mV and MiriState.fuseBlown each poll cycle. Use ADC_ATTEN_DB_2_5, esp_adc_cal_characterize(), and an 8-sample moving average; initialize the ADC after a 500ms boot delay. CRITICAL BLOCKER: the ADC pin MIRI_PIN_ADC_FUSE is GPIO0 PENDING hardware confirmation (boot-strapping pin + ADC2/Wi-Fi conflict) - DO NOT assume GPIO0 is final: make the pin configurable via miri_pins.h default, document the GPIO0 conflict clearly in code comments, and gate ADC2 reads appropriately if GPIO0 is used. Provide a main-page drawer at GET /miri/panel/fusemonitor showing a VIN bar and a fuse OK/BLOWN badge, debounce the fuse blow (N consecutive reads below threshold), and emit \"Vin\" and \"Fuse\" via addToJsonInfo(). Config keys: pollIntervalMs (default 500), fuseBlowThreshold_mV (default 1000), plus under/over voltage thresholds. Must compile and run STANDALONE with only -D USERMOD_MIRI_FUSE_MONITOR: when MiriCore is absent, provide #ifndef pin/MiriState fallbacks so you do not depend on the miri-core branch at build time. Gate all Serial behind #ifdef MIRI_DEBUG. Preserve base WLED code. Use Miri-Pwm-CHhip-Dev / Miri_v1.0 only as read reference, never merge/branch from them. Build with PlatformIO enabling USERMOD_MIRI_FUSE_MONITOR and report the result; if the toolchain cannot be installed, ensure correctness and say so in your Verification section.",
+      "brief": "Authoritative spec: docs/miri-mods/fuse-monitor.md. Build flag: -D USERMOD_MIRI_FUSE_MONITOR. Standalone: Yes. ESP32 ADC calibration uses esp_adc_cal. Follow the usermod_v2 registration pattern from existing usermods.",
+      "pathsAllowed": [
+        "usermods/**",
+        "platformio.ini",
+        "platformio_override.sample.ini"
+      ],
+      "acceptance": [
+        "Compiles standalone with USERMOD_MIRI_FUSE_MONITOR",
+        "Fuse blow debounced (N consecutive reads below threshold)",
+        "MiriState.voltageIn_mV and fuseBlown updated each poll cycle",
+        "GPIO0 conflict documented in code; pin abstracted in miri_pins.h with configurable default",
+        "addToJsonInfo() emits \"Vin\" and \"Fuse\"; drawer at /miri/panel/fusemonitor",
+        "Serial gated behind MIRI_DEBUG",
+        "Branch named mod/fuse-monitor, off main; draft PR opened against main"
+      ],
+      "verify": "## Setup\n- Fresh clone of the branch.\n## Automated\n- Build a standalone env with USERMOD_MIRI_FUSE_MONITOR (pio run) and confirm a clean build.\n## Manual\n- Confirm VIN math (x29.67), 8-sample average, 500ms ADC init delay, debounced fuse detection, MiriState writes, drawer route, and that the GPIO0 conflict is documented and the pin is configurable.\n## Gotchas\n- Do not hardcode GPIO0 as final. Build must not depend on the miri-core branch. Serial behind MIRI_DEBUG."
+    },
+    {
+      "name": "pwm",
+      "type": "worker",
+      "openPR": true,
+      "scopedGoal": "Implement the MiriPWM WLED usermod exactly as specified in docs/miri-mods/pwm.md (read it first; authoritative). Control the Miri v1.0 LED outputs: four RGBW PWM channels driving MOSFET gates (LED_R=IO13, LED_G=IO12, LED_B=IO14, LED_W=IO27), two addressable strip channels via SN74HCS244 (Strip1 Data shares IO13 with LED_R - mutually exclusive; Strip2 Clock shares IO12 with LED_G; Strip2 Data shares IO14 with LED_B; Strip1 Clock=IO15), a CH_EN enable line (pin TBD) asserted HIGH on normal boot to enable U5 (SN74HCS244 OE#), and a PCA9633 I2C indicator driver at address 0x62 on IO21/22. Default LEDC: 1220 Hz, 12-bit - CHECK which LEDC channels WLED already reserves before assigning yours. On setup: Wire.begin + PCA9633 init (clear the SLEEP bit). Provide per-channel mode config (PWM vs strip) enforcing mutual exclusion on shared GPIOs. RGBW LEDC outputs must update on WLED state change. Integrate with the WLED bus manager for strip channels when strip mode is active. V1 has NO drawer; reserve (declare but leave unused) v2 config keys such as ch1ColorRole etc. PCA9633 I2C writes only on change. Keep loop() under ~1ms typical. Must compile and run STANDALONE with only -D USERMOD_MIRI_PWM: when MiriCore is absent provide #ifndef pin fallbacks so you do not depend on the miri-core branch at build time. Gate all Serial behind #ifdef MIRI_DEBUG. Preserve base WLED code. IMPORTANT: Miri-Pwm-CHhip-Dev (usermods/usermod_v2_pca9632_Bus/ and its wled00/bus_manager.cpp changes) and Miri_v1.0/usermod_v2_pca9632 are READ-ONLY references - you may git fetch and inspect them to port patterns, but you MUST rewrite on main and never merge or branch from them. Build with PlatformIO enabling USERMOD_MIRI_PWM and report the result; if the toolchain cannot be installed, ensure correctness and say so in your Verification section.",
+      "brief": "Authoritative spec: docs/miri-mods/pwm.md. Build flag: -D USERMOD_MIRI_PWM. Standalone: Yes. Reference (do not branch from): Miri-Pwm-CHhip-Dev usermods/usermod_v2_pca9632_Bus/ and wled00/bus_manager.cpp diffs. WLED uses LEDC channels for its own PWM buses (see wled00/bus_manager.cpp / wled00/bus_wrapper.h) - avoid collisions. Follow the usermod_v2 registration pattern.",
+      "pathsAllowed": [
+        "usermods/**",
+        "wled00/**",
+        "platformio.ini",
+        "platformio_override.sample.ini"
+      ],
+      "acceptance": [
+        "Compiles standalone with USERMOD_MIRI_PWM",
+        "RGBW LEDC outputs update on WLED state change",
+        "Shared GPIO mutual exclusion enforced in config",
+        "PCA9633 I2C writes only on change",
+        "CH_EN asserted HIGH on normal boot; PCA9633 SLEEP cleared on init",
+        "loop() stays under 1ms typical; v2 config keys reserved but unused",
+        "Serial gated behind MIRI_DEBUG",
+        "Branch named mod/pwm, off main; draft PR opened against main"
+      ],
+      "verify": "## Setup\n- Fresh clone of the branch.\n## Automated\n- Build a standalone env with USERMOD_MIRI_PWM (pio run) and confirm a clean build.\n## Manual\n- Confirm RGBW LEDC config (1220 Hz, 12-bit, no collision with WLED-reserved channels), shared-GPIO mutual exclusion, PCA9633 init clears SLEEP and writes only on change, CH_EN HIGH on boot.\n## Gotchas\n- Reference Miri-Pwm-CHhip-Dev only; rewrite on main. Build must not depend on the miri-core branch. Serial behind MIRI_DEBUG."
+    },
+    {
+      "name": "iicie",
+      "type": "worker",
+      "openPR": true,
+      "scopedGoal": "Implement the IICIe (Pixi2) daughter-board WLED usermod exactly as specified in docs/miri-mods/iicie.md (read it first; authoritative). Driver for the PCA9849PWJ 4-channel I2C multiplexer daughter board on the LP bus (Wire1): Wire1.begin(MIRI_LP_I2C_SDA, MIRI_LP_I2C_SCL, 100000). Channel select is via a 1-byte control register (bits B2:B1:B0). Support all 9 selectable board addresses in a board registry: 0x58, 0x59, 0x5B, 0x70, 0x71, 0x73, 0x74, 0x75, 0x77. The MiriBoard_IICIe driver should activate on address detection, perform channel select, and support a downstream scan. Provide HTTP routes per instance: GET /miri/panel/iicie/0x[addr], POST /miri/iicie/0x[addr]/channel, and POST /miri/iicie/0x[addr]/scan (manual scan ONLY - never scan automatically at boot). Provide an extensible user-peripheral template framework with documented copy-paste examples for AnalogPeripheral, DigitalPeripheral, and DisplayPeripheral, plus an auto-generated drawer built from the peripheral declarations. Must compile and run STANDALONE with only -D USERMOD_MIRI_BOARD_IICIE: when MiriCore is absent provide #ifndef pin fallbacks (MIRI_LP_I2C_SDA/SCL) so you do not depend on the miri-core branch at build time. Gate all Serial behind #ifdef MIRI_DEBUG. Preserve base WLED code. Use Miri-Pwm-CHhip-Dev / Miri_v1.0 only as read reference, never merge/branch from them. Build with PlatformIO enabling USERMOD_MIRI_BOARD_IICIE and report the result; if the toolchain cannot be installed, ensure correctness and say so in your Verification section.",
+      "brief": "Authoritative spec: docs/miri-mods/iicie.md. Build flag: -D USERMOD_MIRI_BOARD_IICIE. Standalone: Yes. PCA9849PWJ is a 4-channel I2C mux selected via a 1-byte control register. Use the secondary I2C bus Wire1. Follow the usermod_v2 registration pattern; register HTTP routes in setup() via the global AsyncWebServer.",
+      "pathsAllowed": [
+        "usermods/**",
+        "platformio.ini",
+        "platformio_override.sample.ini"
+      ],
+      "acceptance": [
+        "Compiles standalone with USERMOD_MIRI_BOARD_IICIE",
+        "All 9 addresses (0x58,0x59,0x5B,0x70,0x71,0x73,0x74,0x75,0x77) in board registry",
+        "Channel selection writes correct PCA9849 control byte",
+        "Scan triggered only via UI/API (POST .../scan), never automatically at boot",
+        "Peripheral templates (Analog/Digital/Display) documented with copy-paste examples; drawer auto-generated",
+        "Serial gated behind MIRI_DEBUG",
+        "Branch named mod/iicie, off main; draft PR opened against main"
+      ],
+      "verify": "## Setup\n- Fresh clone of the branch.\n## Automated\n- Build a standalone env with USERMOD_MIRI_BOARD_IICIE (pio run) and confirm a clean build.\n## Manual\n- Confirm Wire1 init at 100kHz, all 9 addresses registered, correct control-byte channel select, scan only via POST route, and documented peripheral templates with auto-generated drawer.\n## Gotchas\n- No boot-time scan. Build must not depend on the miri-core branch. Serial behind MIRI_DEBUG."
+    },
+    {
+      "name": "color-sphere",
+      "type": "worker",
+      "openPR": true,
+      "scopedGoal": "Implement the MiriColorSphere WLED usermod exactly as specified in docs/miri-mods/color-sphere.md (read it first; authoritative). This is a PURE WEB UI mod - no C++ color logic, no hardware, no MiriState dependency, and no Miri branding required. Provide a 3D color sphere picker that replaces WLED's native 2D color picker. Serve GET /sphere returning a PROGMEM byte array MIRI_SPHERE_HTML[] (place the embedded HTML in a header such as sphere_html.h) unless the asset exceeds ~40KB, in which case document and implement a LittleFS fallback instead. The sphere JS must POST color changes to WLED's /json/state in the form { \"seg\": [{ \"id\": 0, \"col\": [[R,G,B]] }] }. Modify the Miri web assets to replace the native 2D picker container at build time (NOT runtime DOM injection). Emit { \"Color Sphere\": [\"/sphere\", \"url\"] } via addToJsonInfo(). Optional config: a custom route path defaulting to /sphere. Start from the HTML prototypes in docs/miri-mods/color-sphere-assets/ - use 'sphere picker code index.html' (or an approved variant) as the basis for the embedded picker. Must compile STANDALONE with only -D USERMOD_MIRI_COLOR_SPHERE. Gate all Serial behind #ifdef MIRI_DEBUG. Preserve base WLED code. Build with PlatformIO enabling USERMOD_MIRI_COLOR_SPHERE and report the result; if the toolchain cannot be installed, ensure correctness and say so in your Verification section.",
+      "brief": "Authoritative spec: docs/miri-mods/color-sphere.md. Build flag: -D USERMOD_MIRI_COLOR_SPHERE. Standalone: Yes. Reference HTML prototypes: docs/miri-mods/color-sphere-assets/*.html (prefer 'sphere picker code index.html'). Embed final HTML as PROGMEM in sphere_html.h unless >~40KB (then LittleFS fallback). Register the /sphere route in setup() via the global AsyncWebServer. Follow the usermod_v2 registration pattern.",
+      "pathsAllowed": [
+        "usermods/**",
+        "platformio.ini",
+        "platformio_override.sample.ini"
+      ],
+      "acceptance": [
+        "Compiles standalone with USERMOD_MIRI_COLOR_SPHERE",
+        "/sphere loads the 3D picker; color changes propagate via POST /json/state",
+        "No MiriState dependency; no Miri branding required in this mod",
+        "HTML embedded in PROGMEM (or documented LittleFS fallback if >40KB)",
+        "addToJsonInfo() emits { \"Color Sphere\": [\"/sphere\", \"url\"] }",
+        "Serial gated behind MIRI_DEBUG",
+        "Branch named mod/color-sphere, off main; draft PR opened against main"
+      ],
+      "verify": "## Setup\n- Fresh clone of the branch.\n## Automated\n- Build a standalone env with USERMOD_MIRI_COLOR_SPHERE (pio run) and confirm a clean build.\n## Manual\n- Load /sphere, change a color, confirm a POST to /json/state with the seg/col payload, confirm the native 2D picker container is replaced at build time and addToJsonInfo emits the Color Sphere url.\n## Gotchas\n- Pure web UI; no hardware or MiriState. PROGMEM embed unless >40KB. Serial behind MIRI_DEBUG."
+    }
+  ]
+}
