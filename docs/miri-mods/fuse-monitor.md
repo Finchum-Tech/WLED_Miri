@@ -28,8 +28,18 @@ Sample input supply voltage via 43kΩ/1.5kΩ divider on ADC. Calculate VIN in mV
 
 ## Acceptance criteria
 
-- [ ] Compiles standalone with `USERMOD_MIRI_FUSE_MONITOR`
-- [ ] Fuse blow debounced (N consecutive reads below threshold)
-- [ ] MiriState fields updated each poll cycle
-- [ ] GPIO0 conflict documented; pin abstracted in `miri_pins.h`
-- [ ] Serial gated behind `MIRI_DEBUG`
+- [ ] Compiles standalone with `USERMOD_MIRI_FUSE_MONITOR` *(tooling dependent in local environment)*
+- [x] Fuse blow debounced (N consecutive reads below threshold)
+- [x] MiriState fields updated each poll cycle
+- [x] GPIO0 conflict documented; pin abstracted in `miri_pins.h`
+- [x] Serial gated behind `MIRI_DEBUG`
+
+## Implementation notes (current branch)
+
+- Code path: `usermods/miri_fuse_monitor/`
+- Standalone pin defaults are in `usermods/miri_fuse_monitor/miri_pins.h`
+- Route implemented: `GET /miri/panel/fusemonitor`
+- Info keys implemented in `addToJsonInfo()`: `Vin`, `Fuse`
+- Debounce controls include both read-count and time window:
+  - `fuseDebounceReads`
+  - `fuseBlowDebounceMs`

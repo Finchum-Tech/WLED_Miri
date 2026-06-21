@@ -1,0 +1,7 @@
+{
+  "name": "miri_fuse_monitor",
+  "build": {
+    "libArchive": false
+  },
+  "dependencies": {}
+}
