@@ -36,3 +36,15 @@ Read TI TMP1075NDRLR (U6) at I²C address `0x49` on main bus. Expose board tempe
 - [ ] `addToJsonInfo()` emits `"Board Temp"`; alert badge when overTemp
 - [ ] Drawer registered and functional
 - [ ] Serial gated behind `MIRI_DEBUG`
+
+## Implementation status (isolated worktree)
+
+- [x] Standalone usermod added at `usermods/miri_temp_sensor/` with `library.json`
+- [x] Standalone env added: `env:esp32dev_miri_temp_sensor` with `custom_usermods = miri_temp_sensor`
+- [x] TMP1075 I2C read path implemented (`0x49`, register `0x00`, 12-bit signed conversion)
+- [x] Polling + threshold config implemented: `pollIntervalMs`, `overTempThreshold_C`, 2C hysteresis
+- [x] `MiriState.tempCelsius` and `MiriState.overTemp` writes implemented
+- [x] `/json/info` includes `Board Temp` and over-temp alert entry
+- [x] Route added: `GET /miri/panel/tempsensor`
+- [x] Serial output gated behind `MIRI_DEBUG`
+- [ ] PlatformIO build validation in this environment (blocked: `pio` command unavailable)

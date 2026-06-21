@@ -1,0 +1,7 @@
+{
+  "name": "miri_temp_sensor",
+  "build": {
+    "libArchive": false
+  },
+  "dependencies": {}
+}
