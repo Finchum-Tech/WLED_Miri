@@ -28,3 +28,21 @@ HTML prototypes in [`color-sphere-assets/`](color-sphere-assets/) — use `spher
 - [ ] No MiriState dependency; no Miri branding required in this mod
 - [ ] HTML embedded in PROGMEM (or documented LittleFS fallback if >40KB)
 - [ ] Serial gated behind `MIRI_DEBUG`
+
+
+## Implementation status
+
+- [x] Added standalone usermod at `usermods/miri_color_sphere` gated by `USERMOD_MIRI_COLOR_SPHERE`
+- [x] Added `GET /sphere` route serving `MIRI_SPHERE_HTML[]` from PROGMEM
+- [x] Sphere page posts to `/json/state` as `{"seg":[{"id":0,"col":[[R,G,B]]}]}`
+- [x] Added info row exactly as `{ "Color Sphere": ["/sphere", "url"] }`
+- [x] Updated source web assets (build-time) with static sphere container integration (no runtime DOM injection)
+- [x] Added standalone build env `esp32dev_miri_color_sphere`
+
+### PROGMEM size note
+
+Current `sphere_html.h` payload is ~36.4 KB, below the ~40 KB fallback threshold. LittleFS fallback is not required for this implementation.
+
+### Current validation blocker
+
+`pio` / `platformio` CLI is unavailable in the current shell environment, so local build verification cannot run here.

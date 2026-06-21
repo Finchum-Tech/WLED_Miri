@@ -2,6 +2,7 @@
 var loc = false, locip, locproto = "http:";
 var isOn = false, nlA = false, isLv = false, isInfo = false, isNodes = false, syncSend = false/*, syncTglRecv = true*/;
 var hasWhite = false, hasRGB = false, hasCCT = false, has2D = false;
+var hasColorSphere = false;
 var nlDur = 60, nlTar = 0;
 var nlMode = false;
 var segLmax = 0; // size (in pixels) of largest selected segment
@@ -666,6 +667,7 @@ function parseInfo(i) {
 	if (i.live) name = "(Live) " + name;
 	if (loc)    name = "(L) " + name;
 	d.title      = name;
+	hasColorSphere = !!(i.u && i.u["Color Sphere"] && i.u["Color Sphere"][0] === "/sphere");
 	simplifiedUI = i.simplifiedui;
 	ledCount     = i.leds.count;
 	//syncTglRecv   = i.str;
@@ -1278,7 +1280,9 @@ function updateUI()
 	gId('wwrap').style.display   = (hasWhite) ? "block":"none";               // white channel
 	gId('wbal').style.display    = (hasCCT) ? "block":"none";                 // white balance
 	gId('hexw').style.display    = (ccfg.hex) ? "block":"none";               // HEX input
-	gId('picker').style.display  = (hasRGB && ccfg.picker) ? "block":"none";  // color picker wheel
+	const showSphere = hasRGB && ccfg.picker && hasColorSphere;
+	gId('spherewrap').style.display = showSphere ? "block" : "none";
+	gId('picker').style.display  = (hasRGB && ccfg.picker && !hasColorSphere) ? "block":"none";  // color picker wheel
 	gId('hwrap').style.display   = (hasRGB && !ccfg.picker) ? "block":"none"; // hue slider
 	gId('swrap').style.display   = (hasRGB && !ccfg.picker) ? "block":"none"; // saturation slider
 	gId('vwrap').style.display   = (hasRGB) ? "block":"none";                 // brightness (value) slider

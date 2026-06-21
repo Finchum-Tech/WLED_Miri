@@ -1,0 +1,21 @@
+:root {
+  --miri-accent: #2EB8B8;
+}
+
+#miri-panels {
+  margin-top: 12px;
+}
+
+.miri-panel {
+  border: 1px solid rgba(46, 184, 184, 0.6);
+  border-radius: 10px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: rgba(34, 34, 34, 0.4);
+}
+
+.miri-panel h3 {
+  color: var(--miri-accent);
+  margin: 0 0 6px;
+  font-size: 14px;
+}
