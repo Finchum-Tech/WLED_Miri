@@ -27,9 +27,20 @@ Driver for PCA9849PWJ 4-channel I²C multiplexer daughter board on LP bus (Wire1
 
 ## Acceptance criteria
 
-- [ ] Compiles standalone with `USERMOD_MIRI_BOARD_IICIE`
-- [ ] All 9 addresses in board registry
-- [ ] Channel selection writes correct PCA9849 control byte
-- [ ] Scan triggered only via UI/API, not automatic at boot
-- [ ] Peripheral templates documented with copy-paste examples
-- [ ] Serial gated behind `MIRI_DEBUG`
+- [ ] Compiles standalone with `USERMOD_MIRI_BOARD_IICIE` *(blocked locally: PlatformIO tooling unavailable)*
+- [x] All 9 addresses in board registry
+- [x] Channel selection writes correct PCA9849 control byte
+- [x] Scan triggered only via UI/API, not automatic at boot
+- [x] Peripheral templates documented with copy-paste examples
+- [x] Serial gated behind `MIRI_DEBUG`
+
+## Current implementation notes (`mod/iicie`)
+
+- Standalone usermod path: `usermods/miri_board_iicie/`
+- API/UI routes are generated per detected mux instance:
+  - `GET /miri/panel/iicie/0x[addr]`
+  - `POST /miri/iicie/0x[addr]/channel`
+  - `POST /miri/iicie/0x[addr]/scan`
+- Address registry is fixed to required PCA9849 address set.
+- Downstream scanning is manual only (`/scan` endpoint) and is not executed in `setup()`.
+- Peripheral template drawer is auto-generated from template declarations and includes analog/digital/display copy-paste examples.
