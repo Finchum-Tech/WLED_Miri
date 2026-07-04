@@ -87,7 +87,7 @@ static bool handleIfNoneMatchCacheHeader(AsyncWebServerRequest *request, int cod
  * @param gzip Optional. Defaults to true. If false, the gzip header will not be added.
  * @param eTagSuffix Optional. Defaults to 0. A suffix that will be added to the ETag header. This can be used to invalidate the cache for a specific page.
  */
-static void handleStaticContent(AsyncWebServerRequest *request, const String &path, int code, const String &contentType, const uint8_t *content, size_t len, bool gzip = true, uint16_t eTagSuffix = 0) {
+void handleStaticContent(AsyncWebServerRequest *request, const String &path, int code, const String &contentType, const uint8_t *content, size_t len, bool gzip, uint16_t eTagSuffix) {
   if (path != "" && handleFileRead(request, path)) return;
   if (handleIfNoneMatchCacheHeader(request, code, eTagSuffix)) return;
   AsyncWebServerResponse *response = request->beginResponse_P(code, contentType, content, len);
@@ -204,7 +204,7 @@ void createEditHandler(bool enable) {
   }
 }
 
-static bool captivePortal(AsyncWebServerRequest *request)
+bool captivePortal(AsyncWebServerRequest *request)
 {
   if (!apActive) return false; //only serve captive in AP mode
   if (!request->hasHeader(F("Host"))) return false;
@@ -218,6 +218,16 @@ static bool captivePortal(AsyncWebServerRequest *request)
     return true;
   }
   return false;
+}
+
+void serveOriginalMainUI(AsyncWebServerRequest *request)
+{
+  if (captivePortal(request)) return;
+  if (!showWelcomePage || request->hasArg(F("sliders"))) {
+    handleStaticContent(request, F("/index.htm"), 200, FPSTR(CONTENT_TYPE_HTML), PAGE_index, PAGE_index_L);
+  } else {
+    serveSettings(request);
+  }
 }
 
 void initServer()
@@ -437,12 +447,7 @@ void initServer()
 #endif
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (captivePortal(request)) return;
-    if (!showWelcomePage || request->hasArg(F("sliders"))) {
-      handleStaticContent(request, F("/index.htm"), 200, FPSTR(CONTENT_TYPE_HTML), PAGE_index, PAGE_index_L);
-    } else {
-      serveSettings(request);
-    }
+    serveOriginalMainUI(request);
   });
 
 #ifdef WLED_ENABLE_PIXART

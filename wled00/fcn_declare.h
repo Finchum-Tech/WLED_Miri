@@ -460,6 +460,9 @@ void handleSerial();
 void updateBaudRate(uint32_t rate);
 
 //wled_server.cpp
+void handleStaticContent(AsyncWebServerRequest *request, const String &path, int code, const String &contentType, const uint8_t *content, size_t len, bool gzip = true, uint16_t eTagSuffix = 0);
+bool captivePortal(AsyncWebServerRequest *request);
+void serveOriginalMainUI(AsyncWebServerRequest *request);
 void createEditHandler(bool enable);
 void initServer();
 void serveMessage(AsyncWebServerRequest* request, uint16_t code, const String& headl, const String& subl="", byte optionT=255);
