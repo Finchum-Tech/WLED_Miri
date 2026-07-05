@@ -219,11 +219,7 @@
 #endif
 
 #ifdef USERMOD_UI_WRAPPER
-  #include "../usermods/usermod_v2_ui_wrapper/usermod_v2_ui_wrapper.h"
-#endif
-
-#ifdef USERMOD_UI_WRAPPER_DEMO
-  #include "../usermods/usermod_v2_ui_wrapper/usermod_v2_ui_wrapper_demo.h"
+  #include "../usermods/ui_wrapper/ui_wrapper.h"
 #endif
 
 #ifdef USERMOD_STAIRCASE_WIPE
@@ -481,9 +477,5 @@ void registerUsermods()
 
   #ifdef USERMOD_UI_WRAPPER
   UsermodManager::add(new UIWrapperUsermod());
-  #endif
-
-  #ifdef USERMOD_UI_WRAPPER_DEMO
-  UsermodManager::add(new UIWrapperDemoUsermod());
   #endif
 }
