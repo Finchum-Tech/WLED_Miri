@@ -4,18 +4,15 @@
 #include "generated_ui_bundle.h"
 
 /*
- * UI Wrapper usermod — iframe host for stock WLED UI injection (spec v0.3).
+ * Usermod UI — iframe host for stock WLED UI injection (spec v0.3).
  * Target: WLED 0.15.x
  *
  * Enable:
- *   lib_deps = file://usermods/ui_wrapper
- *   build_flags = -D USERMOD_UI_WRAPPER
- *
- * Contributing usermods drop ui.js in their folder; the bundler (tools/bundle_ui.py)
- * picks them up via USERMOD_* build flags. See readme.md.
+ *   lib_deps = file://usermods/usermod_ui
+ *   build_flags = -D USERMOD_UI
  */
 
-class UIWrapperUsermod : public Usermod {
+class UsermodUI : public Usermod {
   public:
     void setup() override {
       server.on(F("/"), HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -37,14 +34,14 @@ class UIWrapperUsermod : public Usermod {
 
     void loop() override {}
 
-    uint16_t getId() override { return USERMOD_ID_UI_WRAPPER; }
+    uint16_t getId() override { return USERMOD_ID_UI; }
 
   private:
     static const char _wrapperHtml[] PROGMEM;
     static const char _injectJs[] PROGMEM;
 };
 
-const char UIWrapperUsermod::_wrapperHtml[] PROGMEM = R"=====(
+const char UsermodUI::_wrapperHtml[] PROGMEM = R"=====(
 <!doctype html>
 <html>
 <head>
@@ -63,7 +60,7 @@ const char UIWrapperUsermod::_wrapperHtml[] PROGMEM = R"=====(
 </html>
 )=====";
 
-const char UIWrapperUsermod::_injectJs[] PROGMEM = R"=====(
+const char UsermodUI::_injectJs[] PROGMEM = R"=====(
 function mirrorTitleAndFavicon(idoc) {
   document.title = idoc.title;
   const titleEl = idoc.querySelector('title');
@@ -84,6 +81,13 @@ function mirrorTitleAndFavicon(idoc) {
   }
 }
 
+function stripPassthroughBase(url) {
+  if (!url || typeof url !== 'string') return url;
+  url = url.replace(/^(https?:\/\/[^/]+)\/wled_orig(?=\/)/, '$1');
+  if (url.startsWith('/wled_orig/')) url = url.slice('/wled_orig'.length);
+  return url;
+}
+
 function interceptNavigation(iwin) {
   if (iwin._navIntercepted) return;
   const originalGetURL = iwin.getURL;
@@ -93,21 +97,36 @@ function interceptNavigation(iwin) {
   }
   iwin._navIntercepted = true;
   iwin.getURL = function (path) {
+    if (path === '/' || path === './') return '/wled_orig';
     let real = originalGetURL.call(iwin, path);
-    if (real.startsWith('/wled_orig/')) real = real.slice('/wled_orig'.length);
+    real = stripPassthroughBase(real);
     if (real === '/' || real === './') return '/wled_orig';
     return real;
   };
 }
 
-document.getElementById('main').addEventListener('load', function () {
+function patchIframeEarly(main) {
+  function tick() {
+    let iwin;
+    try { iwin = main.contentWindow; } catch (e) { iwin = null; }
+    if (iwin && typeof iwin.getURL === 'function') interceptNavigation(iwin);
+    if (!main._wledUiLoadDone) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+const mainFrame = document.getElementById('main');
+patchIframeEarly(mainFrame);
+
+mainFrame.addEventListener('load', function () {
   const idoc = this.contentDocument;
   if (!idoc) return;
   const iwin = this.contentWindow;
-  mirrorTitleAndFavicon(idoc);
   interceptNavigation(iwin);
+  mirrorTitleAndFavicon(idoc);
   if (window.WLEDUI && typeof window.WLEDUI._runAll === 'function') {
     window.WLEDUI._runAll(idoc);
   }
+  mainFrame._wledUiLoadDone = true;
 });
 )=====";

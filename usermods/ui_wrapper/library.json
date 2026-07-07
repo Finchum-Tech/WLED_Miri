@@ -1,7 +1,0 @@
-{
-  "name": "ui_wrapper",
-  "build": {
-    "libArchive": false,
-    "extraScript": "tools/bundle_ui.py"
-  }
-}

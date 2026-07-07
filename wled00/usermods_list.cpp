@@ -218,8 +218,8 @@
   #include "../usermods/pov_display/usermod_pov_display.h"
 #endif
 
-#ifdef USERMOD_UI_WRAPPER
-  #include "../usermods/ui_wrapper/ui_wrapper.h"
+#ifdef USERMOD_UI
+  #include "../usermods/usermod_ui/usermod_ui.h"
 #endif
 
 #ifdef USERMOD_STAIRCASE_WIPE
@@ -475,7 +475,7 @@ void registerUsermods()
   UsermodManager::add(new PovDisplayUsermod());
   #endif
 
-  #ifdef USERMOD_UI_WRAPPER
-  UsermodManager::add(new UIWrapperUsermod());
+  #ifdef USERMOD_UI
+  UsermodManager::add(new UsermodUI());
   #endif
 }
