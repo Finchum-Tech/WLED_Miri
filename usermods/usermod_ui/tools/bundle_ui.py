@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -169,25 +170,42 @@ def module_key(usermod_name, ui_path: Path, usermod_dir: Path):
     return f"{usermod_name}__{suffix}"
 
 
+def include_implied_usermod_dirs(enabled_dirs, include_raw):
+    """INCLUDE paths under usermods/<folder>/ imply that folder is in bundling scope."""
+    dirs = dict(enabled_dirs)
+    if not include_raw:
+        return dirs
+    for entry in include_raw.split(","):
+        entry = entry.strip().replace("\\", "/").strip("'\"")
+        if not entry:
+            continue
+        folder_name = entry.split("/")[0]
+        candidate = USERMODS_DIR / folder_name
+        if candidate.is_dir():
+            dirs[folder_name] = candidate
+    return dirs
+
+
 def discover_explicit(enabled_dirs):
     include_raw = cpp_define_value("USERMOD_UI_INCLUDE")
     if not include_raw:
         return None
+    dirs = include_implied_usermod_dirs(enabled_dirs, include_raw)
     modules = []
     for entry in include_raw.split(","):
-        entry = entry.strip().replace("\\", "/")
+        entry = entry.strip().replace("\\", "/").strip("'\"")
         if not entry:
             continue
         parts = entry.split("/")
         if not parts:
             continue
-        usermod = parts[0].lower()
-        if usermod not in enabled_dirs:
+        usermod = parts[0]
+        if usermod not in dirs:
             continue
         ui_path = USERMODS_DIR / entry
         if not ui_path.is_file():
             continue
-        usermod_dir = enabled_dirs[usermod]
+        usermod_dir = dirs[usermod]
         try:
             ui_path.resolve().relative_to(usermod_dir.resolve())
         except ValueError:
@@ -215,19 +233,59 @@ def discover_modules():
     return discover_default(enabled_dirs)
 
 
-def syntax_check(path):
-    for candidate in ("node", env.get("PYTHONEXE", "node")):
+def find_node():
+    """SCons/PlatformIO often has a stripped PATH — resolve node beyond shutil.which."""
+    cached = getattr(find_node, "_cached", None)
+    if cached:
+        return cached
+
+    candidates = []
+    which = shutil.which("node")
+    if which:
+        candidates.append(which)
+
+    # Windows installers + common package managers (PIO builders rarely inherit these).
+    pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+    pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    local = os.environ.get("LOCALAPPDATA", "")
+    home = Path.home()
+    for path in (
+        Path(pf) / "nodejs" / "node.exe",
+        Path(pf86) / "nodejs" / "node.exe",
+        Path(local) / "Programs" / "node" / "node.exe" if local else None,
+        home / "scoop" / "apps" / "nodejs" / "current" / "node.exe",
+        home / "AppData" / "Roaming" / "nvm" / "current" / "node.exe",
+    ):
+        if path and str(path) not in candidates:
+            candidates.append(str(path))
+
+    for candidate in candidates:
         try:
             subprocess.run(
-                [candidate, "--check", str(path)],
+                [candidate, "-v"],
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            return
-        except (subprocess.CalledProcessError, FileNotFoundError, TypeError):
+            find_node._cached = candidate
+            return candidate
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
             continue
-    raise RuntimeError("bundle_ui.py: node not found - required for ui.js syntax check")
+
+    raise RuntimeError(
+        "bundle_ui.py: node not found - required for ui.js syntax check. "
+        "Install Node.js or ensure it is on PATH for PlatformIO builds."
+    )
+
+
+def syntax_check(path):
+    node = find_node()
+    subprocess.run(
+        [node, "--check", str(path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def minify_js(source):
@@ -246,7 +304,7 @@ process.stdin.on('end', async () => {
 """
     try:
         result = subprocess.run(
-            ["node", "-e", script],
+            [find_node(), "-e", script],
             input=source,
             capture_output=True,
             text=True,
@@ -254,7 +312,7 @@ process.stdin.on('end', async () => {
             check=True,
         )
         return result.stdout or source
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, FileNotFoundError, RuntimeError):
         return source
 
 

@@ -16,11 +16,12 @@ OUT_DIR = ROOT / "usermods" / "usermod_ui"
 HEADER_PATH = OUT_DIR / "generated_ui_bundle.h"
 HASH_PATH = OUT_DIR / ".bundle_inputs_hash"
 
-# Match esp32dev_usermod_ui flags
+# Match esp32dev_usermod_ui flags (override with env vars for allowlist testing)
 CPPDEFINES = [
     ("USERMOD_UI",),
     ("USERMOD_UI_EXAMPLES",),
 ]
+INCLUDE_RAW = os.environ.get("USERMOD_UI_INCLUDE", "").strip()
 
 SKIP_DIR_NAMES = frozenset({"node_modules", "vendor", "third_party"})
 
@@ -89,9 +90,47 @@ def module_key(usermod_name, ui_path: Path, usermod_dir: Path):
     return f"{usermod_name}__{suffix}"
 
 
-def discover_modules():
+def include_implied_usermod_dirs(enabled_dirs, include_raw):
+    dirs = dict(enabled_dirs)
+    if not include_raw:
+        return dirs
+    for entry in include_raw.split(","):
+        entry = entry.strip().replace("\\", "/").strip("'\"")
+        if not entry:
+            continue
+        folder_name = entry.split("/")[0]
+        candidate = USERMODS_DIR / folder_name
+        if candidate.is_dir():
+            dirs[folder_name] = candidate
+    return dirs
+
+
+def discover_explicit(enabled_dirs, include_raw):
+    if not include_raw:
+        return None
+    dirs = include_implied_usermod_dirs(enabled_dirs, include_raw)
     modules = []
+    for entry in include_raw.split(","):
+        entry = entry.strip().replace("\\", "/").strip("'\"")
+        if not entry:
+            continue
+        usermod = entry.split("/")[0]
+        if usermod not in dirs:
+            continue
+        ui_path = USERMODS_DIR / entry
+        if not ui_path.is_file():
+            continue
+        usermod_dir = dirs[usermod]
+        key = module_key(usermod, ui_path, usermod_dir)
+        modules.append((key, ui_path))
+    return modules
+
+
+def discover_modules():
     enabled = enabled_usermod_dirs()
+    if INCLUDE_RAW:
+        return discover_explicit(enabled, INCLUDE_RAW)
+    modules = []
     for usermod_name in sorted(enabled):
         usermod_dir = enabled[usermod_name]
         for ui_path in collect_ui_js_recursive(usermod_dir):

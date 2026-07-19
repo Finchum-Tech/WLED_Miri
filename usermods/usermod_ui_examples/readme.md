@@ -1,24 +1,25 @@
-# usermod_ui_examples
+# Usermod UI examples
 
-Reference recipes for the Usermod UI framework (spec §8.7–8.8). One `ui.js` per recipe - enable everything with a single flag:
+A bundled showcase of what [Usermod UI](../usermod_ui/readme.md) can add to WLED's main control page. Enable the examples folder to load every example at once. Each example is also a standalone `ui.js` that can be loaded or copied without the others.
 
-```ini
--D USERMOD_UI_EXAMPLES
-```
+**Enable:** with the [Usermod UI host configured for your WLED version](../usermod_ui/readme.md), add `-D USERMOD_UI_EXAMPLES` for every example at once, or `-D USERMOD_UI_INCLUDE='"usermod_ui_examples/demo_bar/ui.js"'` (comma-separate paths under `usermods/` for a subset). Rebuild after any `ui.js` change.
 
-| Subfolder | Recipe | Module key |
-|-----------|--------|------------|
-| `demo_bar/` | A - header status bar (read this first) | `usermod_ui_examples__demo_bar` |
-| `toast/` | B - floating toast | `usermod_ui_examples__toast` |
-| `new_tab/` | C - new bottom-bar tab | `usermod_ui_examples__new_tab` |
-| `repeated_panels/` | D - multiple tab panels | `usermod_ui_examples__repeated_panels` |
-| `embed/` | E - iframe existing page | `usermod_ui_examples__embed` |
-| `matrix/` | F - live 5×5 WebSocket grid | `usermod_ui_examples__matrix` |
+## What each example shows
 
-Bundler-only - no C++ class, no `UsermodManager::add`, no `USERMOD_ID_*`.
+Letters follow a suggested learning order, from a simple status bar to tabs and live data.
 
-Bundle a subset only:
+| Example | Folder | What you see |
+|---------|--------|----------------|
+| **A** · Demo bar | [`demo_bar/`](demo_bar/readme.md) | A status strip under the top buttons saying Usermod UI is active |
+| **B** · Toast | [`toast/`](toast/readme.md) | A stock toast notification on page load |
+| **C** · New tab | [`new_tab/`](new_tab/readme.md) | One new bottom-bar tab with its own panel |
+| **D** · Repeated panels | [`repeated_panels/`](repeated_panels/readme.md) | Several similar bottom-bar tabs from one list |
+| **E** · Embed | [`embed/`](embed/readme.md) | A tab that iframes an existing WLED page (palette editor) |
+| **F** · Matrix | [`matrix/`](matrix/readme.md) | A tab with a live LED grid/strip over the main WebSocket |
+| **G** · Button Toast | [`button_toast/`](button_toast/readme.md) | A stock-looking top-bar button that shows a toast when clicked |
 
-```ini
--D USERMOD_UI_INCLUDE='"usermod_ui_examples/demo_bar/ui.js,usermod_ui_examples/matrix/ui.js"'
-```
+Start with **Example A** ([`demo_bar`](demo_bar/readme.md)). Open any folder's `readme.md` for that example's include line and details.
+
+## Supporting helper
+
+[`_tab_layout/`](_tab_layout/readme.md) is not an example. It provides shared layout helpers for keeping the bottom tab bar usable when several examples add tabs.
