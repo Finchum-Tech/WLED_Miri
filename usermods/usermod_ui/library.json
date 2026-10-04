@@ -1,0 +1,7 @@
+{
+  "name": "usermod_ui",
+  "build": {
+    "libArchive": false,
+    "extraScript": "tools/bundle_entry.py"
+  }
+}
