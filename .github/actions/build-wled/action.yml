@@ -1,0 +1,58 @@
+name: Build WLED overlay
+description: Build a pinned WLED release with the local usermod overlay
+
+inputs:
+  wled-version:
+    description: WLED tag to build
+    required: false
+    default: v0.15.1
+  target:
+    description: PlatformIO environment to build
+    required: false
+    default: esp32dev_usermod_ui
+
+runs:
+  using: composite
+  steps:
+    - name: Clone WLED
+      shell: bash
+      env:
+        WLED_VERSION: ${{ inputs.wled-version }}
+      run: |
+        set -euo pipefail
+        case "$WLED_VERSION" in
+          v0.15.*) ;;
+          0.15.*) WLED_VERSION="v$WLED_VERSION" ;;
+          *) echo "This action currently supports WLED v0.15.x only: $WLED_VERSION" >&2; exit 1 ;;
+        esac
+        git clone --depth 1 --branch "$WLED_VERSION" https://github.com/Aircoookie/WLED.git wled
+        printf '%s\n' "$WLED_VERSION" > wled/.wled-version
+
+    - name: Overlay usermod and PlatformIO configuration
+      shell: bash
+      run: |
+        set -euo pipefail
+        cp -a "$GITHUB_WORKSPACE/usermods/usermod_ui" \
+          "$GITHUB_WORKSPACE/usermods/usermod_ui_examples" \
+          "$GITHUB_WORKSPACE/wled/usermods/"
+        cp "$GITHUB_WORKSPACE/platformio_override.sample.ini" \
+          "$GITHUB_WORKSPACE/wled/platformio_override.ini"
+        python "$GITHUB_WORKSPACE/tools/apply_wled_015_overlay.py" \
+          "$GITHUB_WORKSPACE/wled"
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install PlatformIO
+      shell: bash
+      working-directory: wled
+      run: python -m pip install -r requirements.txt
+
+    - name: Build firmware
+      shell: bash
+      working-directory: wled
+      env:
+        TARGET: ${{ inputs.target }}
+      run: pio run -e "$TARGET"

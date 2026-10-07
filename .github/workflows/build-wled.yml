@@ -1,0 +1,55 @@
+name: Build WLED overlay
+
+on:
+  workflow_dispatch:
+    inputs:
+      wled-version:
+        description: WLED v0.15.x tag
+        required: true
+        default: v0.15.1
+        type: string
+      target:
+        description: PlatformIO environment
+        required: true
+        default: esp32dev_usermod_ui
+        type: string
+  push:
+    paths:
+      - .github/actions/build-wled/action.yml
+      - .github/workflows/build-wled.yml
+      - tools/apply_wled_015_overlay.py
+      - platformio_override.sample.ini
+      - usermods/**
+      - WLED_VERSION
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out overlay
+        uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            wled/.pio
+          key: pio-${{ runner.os }}-${{ inputs.wled-version || 'v0.15.1' }}-${{ inputs.target || 'esp32dev_usermod_ui' }}-${{ hashFiles('platformio_override.sample.ini', 'tools/**', 'usermods/**') }}
+
+      - name: Build WLED with usermod overlay
+        uses: ./.github/actions/build-wled
+        with:
+          wled-version: ${{ inputs.wled-version || 'v0.15.1' }}
+          target: ${{ inputs.target || 'esp32dev_usermod_ui' }}
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: wled-${{ inputs.wled-version || 'v0.15.1' }}-${{ inputs.target || 'esp32dev_usermod_ui' }}
+          path: |
+            wled/.pio/build/${{ inputs.target || 'esp32dev_usermod_ui' }}/firmware.bin
+            wled/.pio/build/${{ inputs.target || 'esp32dev_usermod_ui' }}/firmware.elf
