@@ -57,6 +57,12 @@ replace_once(
     '  #endif\n\n'
     '  #ifdef USERMOD_PCA9634\n'
     '  UsermodManager::add(new UsermodPCA9634());\n'
+    '  #endif\n\n'
+    '  #ifdef USERMOD_MIRI\n'
+    '  UsermodManager::add(new MiriCoreUsermod());\n'
+    '  #endif\n\n'
+    '  #ifdef USERMOD_MIRI_COLOR_SPHERE\n'
+    '  UsermodManager::add(new MiriColorSphereUsermod());\n'
     '  #endif\n',
 )
 

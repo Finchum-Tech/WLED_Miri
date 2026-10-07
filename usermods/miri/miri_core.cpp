@@ -184,7 +184,4 @@ public:
   }
 };
 
-static MiriCoreUsermod miriCoreUsermod;
-REGISTER_USERMOD(miriCoreUsermod);
-
 #endif

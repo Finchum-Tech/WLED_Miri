@@ -24,7 +24,4 @@ class MiriColorSphereUsermod : public Usermod {
   }
 };
 
-static MiriColorSphereUsermod miriColorSphereUsermod;
-REGISTER_USERMOD(miriColorSphereUsermod);
-
 #endif

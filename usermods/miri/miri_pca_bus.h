@@ -287,6 +287,7 @@ private:
 };
 
 
+#if 0 // WLED 0.15 does not provide the Bus extension API used by BusPca
 class BusPca : public Bus {
 public:
   BusPca(const BusConfig& bc)
@@ -383,5 +384,6 @@ private:
   uint8_t _channel;
   uint8_t _data[4];
 };
+#endif // WLED 0.15 does not provide the Bus extension API used by BusPca
 
 #endif // USERMOD_MIRI

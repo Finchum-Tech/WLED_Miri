@@ -4,7 +4,4 @@
 
 #include "usermod_ui.h"
 
-static UsermodUI usermodUI;
-REGISTER_USERMOD(usermodUI);
-
 #endif
