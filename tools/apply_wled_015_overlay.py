@@ -40,6 +40,12 @@ replace_once(
     '#endif\n\n'
     '#ifdef USERMOD_PCA9634\n'
     '  #include "../usermods/usermod_v2_pca9634/usermod_v2_pca9634.cpp"\n'
+    '#endif\n\n'
+    '#ifdef USERMOD_MIRI\n'
+    '  #include "../usermods/miri/miri_core.cpp"\n'
+    '#endif\n\n'
+    '#ifdef USERMOD_MIRI_COLOR_SPHERE\n'
+    '  #include "../usermods/miri_color_sphere/miri_color_sphere.cpp"\n'
     '#endif\n',
 )
 replace_once(
