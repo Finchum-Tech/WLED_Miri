@@ -36,7 +36,7 @@ replace_once(
     usermods_list,
     '#include "wled.h"\n',
     '#include "wled.h"\n\n#ifdef USERMOD_UI\n'
-    '  #include "../usermods/usermod_ui/usermod_ui.h"\n'
+    '  #include "../usermods/usermod_ui/usermod_ui.cpp"\n'
     '#endif\n\n'
     '#ifdef USERMOD_PCA9634\n'
     '  #include "../usermods/usermod_v2_pca9634/usermod_v2_pca9634.cpp"\n'
