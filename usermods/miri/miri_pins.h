@@ -1,13 +1,14 @@
 #ifndef USERMOD_MIRI_PINS_H
 #define USERMOD_MIRI_PINS_H
 
-// Main I2C bus shared by Miri modules.
+// Main I2C bus → PCA @0x62 + TMP1075 @0x49.
+// Live scan on hardware: devices ACK on GPIO 9/10 (not 21/22).
 #ifndef MIRI_I2C_SDA
-#define MIRI_I2C_SDA 21
+#define MIRI_I2C_SDA 9
 #endif
 
 #ifndef MIRI_I2C_SCL
-#define MIRI_I2C_SCL 22
+#define MIRI_I2C_SCL 10
 #endif
 
 // Low-priority I2C bus used by daughterboards (Wire1 on ESP32 targets).
@@ -57,8 +58,11 @@
 #define MIRI_PIN_STRIP2_DATA 14
 #endif
 
+// Output enable is WLED's relay pin (LED Settings → Relay GPIO), not a
+// separate Miri GPIO. On the board that line is typically GPIO5, active-low
+// (invert relay in settings so lights-on drives enable).
 #ifndef MIRI_PIN_CH_EN
-#define MIRI_PIN_CH_EN 23
+#define MIRI_PIN_CH_EN -1
 #endif
 
 #endif

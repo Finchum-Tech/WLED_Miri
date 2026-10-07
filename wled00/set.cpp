@@ -160,7 +160,13 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
       char sp[4] = "SP"; sp[2] = offset+s; sp[3] = 0; //bus clock speed (DotStar & PWM)
       char la[4] = "LA"; la[2] = offset+s; la[3] = 0; //LED mA
       char ma[4] = "MA"; ma[2] = offset+s; ma[3] = 0; //max mA
-      if (!request->hasArg(lp)) {
+      if (!request->hasArg(lt)) {
+        DEBUG_PRINTF_P(PSTR("# of buses: %d\n"), s+1);
+        break;
+      }
+      type = request->arg(lt).toInt();
+      // GPIO/data pin is optional for PCA (I2C is fixed on Miri).
+      if (!request->hasArg(lp) && !Bus::isPca(type & 0x7F)) {
         DEBUG_PRINTF_P(PSTR("# of buses: %d\n"), s+1);
         break;
       }
@@ -169,7 +175,6 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
         if (!request->hasArg(lp)) break;
         pins[i] = (request->arg(lp).length() > 0) ? request->arg(lp).toInt() : 255;
       }
-      type = request->arg(lt).toInt();
       skip = request->arg(sl).toInt();
       colorOrder = request->arg(co).toInt();
       start = (request->hasArg(ls)) ? request->arg(ls).toInt() : t;
@@ -202,7 +207,7 @@ void handleSettingsSet(AsyncWebServerRequest *request, byte subPage)
         freq = 0;
       }
       channelSwap = Bus::hasWhite(type) ? request->arg(wo).toInt() : 0;
-      if (Bus::isOnOff(type) || Bus::isPWM(type) || Bus::isVirtual(type)) { // analog and virtual
+      if (Bus::isOnOff(type) || Bus::isPWM(type) || Bus::isVirtual(type) || Bus::isPca(type)) { // analog, virtual, PCA
         maPerLed = 0;
         maMax = 0;
       } else {

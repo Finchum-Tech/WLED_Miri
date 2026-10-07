@@ -884,6 +884,11 @@ function populateSegments(s)
 	gId("segcont").classList.remove("hide");
 	let noNewSegs = (lowestUnused >= maxSeg);
 	resetUtil(noNewSegs);
+	if (segCount < 1) {
+		gId('segutil2').style.display = "none";
+		gId("ledmap").classList.add('hide');
+		return;
+	}
 	for (var i = 0; i <= lSeg; i++) {
 		if (!gId(`seg${i}`)) continue;
 		updateLen(i);

@@ -25,6 +25,10 @@
 #include "bus_wrapper.h"
 #include <bits/unique_ptr.h>
 
+#ifdef USERMOD_MIRI
+#include "../usermods/miri/miri_pca_bus.h"
+#endif
+
 extern bool cctICused;
 extern bool useParallelI2S;
 
@@ -797,6 +801,10 @@ unsigned BusConfig::memUsage(unsigned nr) const {
     return sizeof(BusDigital) + PolyBus::memUsage(count + skipAmount, PolyBus::getI(type, pins, nr)) + doubleBuffer * (count + skipAmount) * Bus::getNumberOfChannels(type);
   } else if (Bus::isOnOff(type)) {
     return sizeof(BusOnOff);
+#ifdef USERMOD_MIRI
+  } else if (Bus::isPca(type)) {
+    return sizeof(BusPca);
+#endif
   } else {
     return sizeof(BusPwm);
   }
@@ -833,7 +841,9 @@ unsigned BusManager::memUsage() {
 
 int BusManager::add(const BusConfig &bc) {
   DEBUGBUS_PRINTF_P(PSTR("Bus: Adding bus (%d - %d >= %d)\n"), getNumBusses(), getNumVirtualBusses(), WLED_MAX_BUSSES);
-  if (getNumBusses() - getNumVirtualBusses() >= WLED_MAX_BUSSES) return -1;
+  // PCA is I2C-backed and does not consume a physical LED output slot.
+  if (!Bus::isVirtual(bc.type) && !Bus::isPca(bc.type) &&
+      getNumBusses() - getNumVirtualBusses() >= WLED_MAX_BUSSES) return -1;
   unsigned numDigital = 0;
   for (const auto &bus : busses) if (bus->isDigital() && !bus->is2Pin()) numDigital++;
   if (Bus::isVirtual(bc.type)) {
@@ -845,6 +855,10 @@ int BusManager::add(const BusConfig &bc) {
   } else if (Bus::isOnOff(bc.type)) {
     busses.push_back(make_unique<BusOnOff>(bc));
     //busses.push_back(new BusOnOff(bc));
+#ifdef USERMOD_MIRI
+  } else if (Bus::isPca(bc.type)) {
+    busses.push_back(make_unique<BusPca>(bc));
+#endif
   } else {
     busses.push_back(make_unique<BusPwm>(bc));
     //busses.push_back(new BusPwm(bc));
@@ -872,6 +886,9 @@ String BusManager::getLEDTypesJSONString() {
   json += LEDTypesToJson(BusOnOff::getLEDTypes());
   json += LEDTypesToJson(BusPwm::getLEDTypes());
   json += LEDTypesToJson(BusNetwork::getLEDTypes());
+#ifdef USERMOD_MIRI
+  json += LEDTypesToJson(BusPca::getLEDTypes());
+#endif
   //json += LEDTypesToJson(BusVirtual::getLEDTypes());
   json.setCharAt(json.length()-1, ']'); // replace last comma with bracket
   return json;

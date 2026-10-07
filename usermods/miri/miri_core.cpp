@@ -4,6 +4,7 @@
 
 #include "miri_shared.h"
 #include "miri_pins.h"
+#include "miri_pca_bus.h"
 
 MiriState miriState;
 
@@ -138,6 +139,35 @@ public:
     JsonArray alert = user.createNestedArray(F("Miri Alert"));
     alert.add(miriState.alertActive ? F("ACTIVE") : F("OK"));
     alert.add(F(""));
+
+    auto& pcaDrv = MiriPcaDriver::instance();
+    JsonArray pca = user.createNestedArray(F("PCA"));
+    auto snap = pcaDrv.readSnapshot();
+    if (!snap.ok) {
+      // Diagnostic: which pin pair ACKs? (scan moves Wire; readSnapshot reselects PCA pins)
+      char scanA[48], scanB[48];
+      pcaDrv.scanBus(9, 10, scanA, sizeof(scanA));
+      pcaDrv.scanBus(21, 22, scanB, sizeof(scanB));
+      snap = pcaDrv.readSnapshot();
+      if (!snap.ok) {
+        pca.add(scanA);
+        pca.add(scanB);
+        return;
+      }
+    }
+    // LDR nibbles: AA = individual only; FF = individual+group (~190 Hz).
+    char line[96];
+    snprintf(line, sizeof(line),
+             "@%02X SDA=%d SCL=%d M1=%02X M2=%02X LEDOUT=%02X",
+             snap.addr, (int)snap.sda, (int)snap.scl,
+             snap.mode1, snap.mode2, snap.ledOut);
+    pca.add(line);
+    snprintf(line, sizeof(line),
+             "PWM=%02X,%02X,%02X,%02X GRP=%02X%s",
+             snap.pwm[0], snap.pwm[1], snap.pwm[2], snap.pwm[3], snap.grpPwm,
+             (snap.ledOut == 0xAA) ? " indiv" :
+             (snap.ledOut == 0xFF) ? " GROUP" : "");
+    pca.add(line);
   }
 
   void addToConfig(JsonObject& root) override {

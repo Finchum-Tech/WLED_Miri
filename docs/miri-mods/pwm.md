@@ -18,8 +18,8 @@ Control Miri v1.0 LED outputs: four RGBW PWM channels (MOSFET gates), two addres
 | LED_B | IO14 | Shared with Strip2 Data |
 | LED_W | IO27 | |
 | Strip1 Clock | IO15 | Strapping pin |
-| CH_EN | TBD | Assert HIGH to enable U5 (SN74HCS244 OE#) |
-| I²C | IO21/22 | PCA9633 at 0x62 |
+| Enable / OE | WLED Relay GPIO IO5 (inverted) | CH_EN → 74HCT244 OE# |
+| I²C | IO21 / IO22 | PCA9632 at 0x62 (~1.56 kHz individual; not 97 kHz — that is PCA9633) |
 
 Default LEDC: 1220 Hz, 12-bit. Check WLED-reserved LEDC channels before assigning.
 
@@ -31,7 +31,7 @@ Default LEDC: 1220 Hz, 12-bit. Check WLED-reserved LEDC channels before assignin
 
 - Wire.begin + PCA9633 init (clear SLEEP)
 - Per-channel mode config: PWM vs strip (mutual exclusion on shared GPIOs)
-- CH_EN asserted HIGH on normal boot
+- Output enable via WLED relay (follows on/off)
 - WLED bus integration for strip channels when strip mode active
 - V1: no drawer. Reserve v2 config keys (`ch1ColorRole`, etc.) unused
 

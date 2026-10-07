@@ -173,7 +173,9 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
       if (s >= WLED_MAX_BUSSES) break;
       uint8_t pins[5] = {255, 255, 255, 255, 255};
       JsonArray pinArr = elm["pin"];
-      if (pinArr.size() == 0) continue;
+      uint8_t ledType = elm["type"] | TYPE_WS2812_RGB;
+      // PCA (and any future 0-pin bus) may legitimately have an empty pin array.
+      if (pinArr.size() == 0 && !Bus::isPca(ledType)) continue;
       //pins[0] = pinArr[0];
       unsigned i = 0;
       for (int p : pinArr) {
@@ -185,7 +187,6 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
       uint8_t skipFirst = elm[F("skip")];
       uint16_t start = elm["start"] | 0;
       if (length==0 || start + length > MAX_LEDS) continue; // zero length or we reached max. number of LEDs, just stop
-      uint8_t ledType = elm["type"] | TYPE_WS2812_RGB;
       bool reversed = elm["rev"];
       bool refresh = elm["ref"] | false;
       uint16_t freqkHz = elm[F("freq")] | 0;  // will be in kHz for DotStar and Hz for PWM
@@ -193,7 +194,7 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
       uint8_t maPerLed = elm[F("ledma")] | LED_MILLIAMPS_DEFAULT;
       uint16_t maMax = elm[F("maxpwr")] | (ablMilliampsMax * length) / total; // rough (incorrect?) per strip ABL calculation when no config exists
       // To disable brightness limiter we either set output max current to 0 or single LED current to 0 (we choose output max current)
-      if (Bus::isPWM(ledType) || Bus::isOnOff(ledType) || Bus::isVirtual(ledType)) { // analog and virtual
+      if (Bus::isPWM(ledType) || Bus::isOnOff(ledType) || Bus::isVirtual(ledType) || Bus::isPca(ledType)) { // analog, virtual, PCA
         maPerLed = 0;
         maMax = 0;
       }
@@ -202,7 +203,7 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
       //busConfigs.push_back(std::move(BusConfig(ledType, pins, start, length, colorOrder, reversed, skipFirst, AWmode, freqkHz, useGlobalLedBuffer, maPerLed, maMax)));
       busConfigs.emplace_back(ledType, pins, start, length, colorOrder, reversed, skipFirst, AWmode, freqkHz, useGlobalLedBuffer, maPerLed, maMax);
       doInitBusses = true;  // finalization done in beginStrip()
-      if (!Bus::isVirtual(ledType)) s++; // have as many virtual buses as you want
+      if (!Bus::isVirtual(ledType) && !Bus::isPca(ledType)) s++; // virtual/PCA do not consume physical bus slots
     }
   }
   if (hw_led["rev"] && BusManager::getNumBusses()) BusManager::getBus(0)->setReversed(true); //set 0.11 global reversed setting for first bus

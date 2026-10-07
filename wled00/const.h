@@ -211,6 +211,7 @@
 #define USERMOD_ID_RF433                 56     //Usermod "usermod_v2_RF433.h"
 #define USERMOD_ID_BRIGHTNESS_FOLLOW_SUN 57     //Usermod "usermod_v2_brightness_follow_sun.h"
 #define USERMOD_ID_UI                    58     //Usermod "usermod_ui.h"
+#define USERMOD_ID_MIRI                  59     //Usermod "miri" (MiriCore)
 
 //Access point behavior
 #define AP_BEHAVIOR_BOOT_NO_CONN          0     //Open AP when no connection after boot
@@ -336,6 +337,14 @@
 #define TYPE_NET_DDP_RGBW        88            //network DDP RGBW bus (master broadcast bus)
 #define TYPE_NET_ARTNET_RGBW     89            //network ArtNet RGB bus (master broadcast bus, unused)
 #define TYPE_VIRTUAL_MAX         95
+// Custom I2C LED drivers (96-111 reserved)
+#define TYPE_PCA9633_MIN         96
+#define TYPE_PCA9633_RGBW        96            // PCA9633 4-ch RGBW (Miri on-board)
+#define TYPE_PCA9633_CH1         97            // PCA9633 channel 1 as white
+#define TYPE_PCA9633_CH2         98            // PCA9633 channel 2 as white
+#define TYPE_PCA9633_CH3         99            // PCA9633 channel 3 as white
+#define TYPE_PCA9633_CH4         100           // PCA9633 channel 4 as white
+#define TYPE_PCA9633_MAX         100
 
 /*
 // old macros that have been moved to Bus class
