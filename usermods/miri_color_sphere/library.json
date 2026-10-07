@@ -1,0 +1,7 @@
+{
+  "name": "miri_color_sphere",
+  "build": {
+    "libArchive": false
+  },
+  "dependencies": {}
+}

@@ -32,8 +32,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        cp -a "$GITHUB_WORKSPACE/usermods/usermod_ui" \
-          "$GITHUB_WORKSPACE/usermods/usermod_ui_examples" \
+        cp -a "$GITHUB_WORKSPACE/usermods/." \
           "$GITHUB_WORKSPACE/wled/usermods/"
         cp "$GITHUB_WORKSPACE/platformio_override.sample.ini" \
           "$GITHUB_WORKSPACE/wled/platformio_override.ini"

@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#0b0d10" />
+  <title>Sphere</title>
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --panel: rgba(14, 17, 21, 0.72);
+      --line: rgba(255, 255, 255, 0.10);
+      --txt: #e7e9ee;
+      --dim: #8b919c;
+      --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--txt);
+      font-family: var(--sans);
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+      touch-action: none;
+    }
+
+    #stage { position: fixed; inset: 0; display: block; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* center reticle — the swatch IS the picked color */
+    #reticle {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      width: 64px;
+      height: 64px;
+      margin: -32px 0 0 -32px;
+      border-radius: 50%;
+      pointer-events: none;
+      border: 2px solid rgba(0, 0, 0, 0.55);
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.85),
+        0 0 0 5px rgba(0, 0, 0, 0.35),
+        0 2px 12px rgba(0, 0, 0, 0.45);
+      background: #808080;
+      transition: background-color 20ms linear;
+    }
+    #reticle::after {
+      content: "";
+      position: absolute;
+      inset: 22px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      mix-blend-mode: difference;
+    }
+
+    /* bottom readout */
+    #hud {
+      position: fixed;
+      left: 50%;
+      bottom: max(14px, env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 14px;
+      background: var(--panel);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      font-family: var(--mono);
+      font-size: 13px;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+    .chan { display: flex; align-items: baseline; gap: 5px; }
+    .chan b { color: var(--dim); font-weight: 600; font-size: 11px; }
+    .chan span { min-width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+    .R b { color: #ff6b6b; } .G b { color: #51cf66; } .B b { color: #5c9dff; } .W b { color: #d7dbe2; }
+
+    #mode {
+      appearance: none;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      color: var(--txt);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 7px 11px;
+      margin-right: 2px;
+      cursor: pointer;
+      min-height: 32px;
+      white-space: nowrap;
+    }
+    #mode::before {
+      content: "white ";
+      color: var(--dim);
+    }
+    #mode:active { background: rgba(255, 255, 255, 0.12); }
+
+    #dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #4b515c;
+      box-shadow: 0 0 0 0 rgba(81, 207, 102, 0.0);
+    }
+    #dot.live { background: #51cf66; box-shadow: 0 0 8px rgba(81, 207, 102, 0.7); }
+    #dot.off  { background: #e0564b; }
+
+    /* hint, fades after first interaction */
+    #hint {
+      position: fixed;
+      left: 50%;
+      top: max(16px, env(safe-area-inset-top));
+      transform: translateX(-50%);
+      color: var(--dim);
+      font-size: 12px;
+      font-family: var(--sans);
+      letter-spacing: 0.02em;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 7px 12px;
+      border-radius: 999px;
+      transition: opacity 500ms ease;
+      pointer-events: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #reticle { transition: none; }
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="stage"></canvas>
+  <div id="reticle"></div>
+  <div id="hint">Drag to aim &middot; top = white &middot; bottom = off &middot; equator = color</div>
+  <div id="hud">
+    <button id="mode" type="button" title="How white is built from the channels">RGB + W</button>
+    <div id="dot" title="WLED link"></div>
+    <div class="chan R"><b>R</b><span id="vR">0</span></div>
+    <div class="chan G"><b>G</b><span id="vG">0</span></div>
+    <div class="chan B"><b>B</b><span id="vB">0</span></div>
+    <div class="chan W"><b>W</b><span id="vW">0</span></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.124/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.124/examples/jsm/controls/OrbitControls.js';
+
+    // ---------- config ----------
+    const SPHERE_R = 60;      // sphere radius (scene units)
+    const CAM_R    = 150;     // fixed orbit radius
+    const SEND_MS  = 90;      // min interval between WLED updates while dragging
+
+    // ---------- scene ----------
+    const canvas = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x0b0d10, 1);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2000);
+    camera.position.set(0, 0, CAM_R);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableZoom = false;
+    controls.enablePan = false;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.25;   // snappier tracking; lower = smoother/laggier, or set enableDamping=false for instant 1:1
+    controls.rotateSpeed = 0.55;
+    // allow the poles to be reached (default 0..PI already does)
+
+    // ---------- the color field, drawn directly by a shader ----------
+    // Surface point direction d (unit). hue = azimuth, lightness = height,
+    // saturation = horizontal radius. North pole -> white, south pole -> black.
+    const vert = /* glsl */`
+      varying vec3 vDir;
+      void main() {
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`;
+
+    const frag = /* glsl */`
+      precision highp float;
+      varying vec3 vDir;
+      const float PI = 3.14159265358979;
+
+      vec3 oklab2lin(float L, float a, float b) {
+        float l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+        float m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+        float s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+        float l = l_ * l_ * l_;
+        float m = m_ * m_ * m_;
+        float s = s_ * s_ * s_;
+        return vec3(
+           4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+          -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+          -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+        );
+      }
+
+      float lin2srgb1(float x) {
+        x = clamp(x, 0.0, 1.0);
+        return x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1.0 / 2.4) - 0.055;
+      }
+
+      // Per-longitude lookup table (built in JS): R,G = remapped hue direction
+      // (ca,cb), B = smoothed cusp lightness. Arc-length remap evens the
+      // perceptual spacing; smoothed lightness rounds the gamut-vertex kinks.
+      uniform sampler2D uHueLUT;
+      uniform sampler2D uLatLUT;
+
+      bool inGamut(vec3 c) {
+        return c.r >= 0.0 && c.g >= 0.0 && c.b >= 0.0 &&
+               c.r <= 1.0 && c.g <= 1.0 && c.b <= 1.0;
+      }
+
+      // True largest in-gamut chroma at lightness L, hue dir (ca,cb). Smooth and
+      // never overshoots the gamut (so nothing gets clamped).
+      float maxChroma(float L, float ca, float cb) {
+        float lo = 0.0, hi = 0.45;
+        for (int i = 0; i < 20; i++) {
+          float mid = 0.5 * (lo + hi);
+          if (inGamut(oklab2lin(L, ca*mid, cb*mid))) lo = mid; else hi = mid;
+        }
+        return lo;
+      }
+
+      // Gamut sphere: longitude -> LUT (even perceptual hue spacing + smoothed
+      // equator lightness); latitude rides the true gamut boundary to white/black.
+      vec3 gamutSphere(vec3 d) {
+        float t = d.y;                              // -1 south .. +1 north
+        float phi = atan(d.z, d.x) / (2.0 * PI) + 0.5;  // 0..1 longitude
+        // manual linear interpolation across two LUT texels (handles the seam)
+        float x = phi * 256.0;
+        float i0 = floor(x), f = x - i0;
+        vec4 a0 = texture2D(uHueLUT, vec2((mod(i0,       256.0) + 0.5) / 256.0, 0.5));
+        vec4 a1 = texture2D(uHueLUT, vec2((mod(i0 + 1.0, 256.0) + 0.5) / 256.0, 0.5));
+        vec4 sm = mix(a0, a1, f);
+        vec2 dir = normalize(sm.rg * 2.0 - 1.0);    // (ca, cb)
+        float Leq = sm.b;                           // smoothed cusp lightness
+        // perceptual latitude remap: equal latitude -> equal perceptual step
+        float p = asin(clamp(t, -1.0, 1.0)) / PI + 0.5;   // 0 south .. 1 north
+        float lx = p * 127.0, li = floor(lx), lf = lx - li;
+        float g0 = texture2D(uLatLUT, vec2((li + 0.5) / 128.0, 0.5)).r;
+        float g1 = texture2D(uLatLUT, vec2((min(li + 1.0, 127.0) + 0.5) / 128.0, 0.5)).r;
+        float g = mix(g0, g1, lf);
+        float L = (t >= 0.0) ? Leq + (1.0 - Leq) * g : Leq * (1.0 - g);
+        float C = maxChroma(L, dir.x, dir.y);
+        vec3 lin = oklab2lin(L, dir.x * C, dir.y * C);
+        return vec3(lin2srgb1(lin.r), lin2srgb1(lin.g), lin2srgb1(lin.b));
+      }
+
+      // ---- dither knob (TEST) ----
+      // Dither spread in bits: amp = 2^bits levels in the 8-bit output.
+      // 1.0 = 2 levels. Try values between ~0.0 (1 level) and ~3.0 to taste.
+      const float DITHER_BITS = 1.0;
+
+      // Independent hash -> uniform [0,1) (Dave Hoskins). Two samples give a
+      // clean triangular-PDF dither.
+      float hash12(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+      }
+
+      void main() {
+        vec3 d = normalize(vDir);
+        vec3 col = gamutSphere(d);
+
+        // Spatial (static) triangular-PDF dither, displayed pixels only.
+        // The reticle / WLED color is computed separately in JS and is unaffected.
+        float tpdf = hash12(gl_FragCoord.xy) - hash12(gl_FragCoord.xy + 17.0);
+        col += tpdf * exp2(DITHER_BITS) / 255.0;
+
+        gl_FragColor = vec4(col, 1.0);
+      }`;
+
+    const sphereMat = new THREE.ShaderMaterial({
+      uniforms: { uHueLUT: { value: null }, uLatLUT: { value: null } },
+      vertexShader: vert,
+      fragmentShader: frag
+    });
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(SPHERE_R, 96, 64),
+      sphereMat
+    );
+    scene.add(sphere);
+
+    // Equator reference bands (horizon) to make orientation easier. Two thin
+    // light-grey rings just above/below the equator; the back halves are hidden
+    // by the sphere, so each reads as a horizon line across its face.
+    const BAND_LAT = 7 * Math.PI / 180;
+    const bandMat = new THREE.MeshBasicMaterial({
+      color: 0xc6ccd6, transparent: true, opacity: 0.5, depthWrite: false
+    });
+    [BAND_LAT, -BAND_LAT].forEach(lat => {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(SPHERE_R * Math.cos(lat) * 1.004, 0.7, 8, 180),
+        bandMat
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = SPHERE_R * Math.sin(lat) * 1.004;
+      scene.add(ring);
+    });
+
+    // ---------- matching JS color math (must mirror the shader) ----------
+    function oklab2lin(L, a, b) {
+      const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+      const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+      return [
+         4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+      ];
+    }
+    function lin2srgb1(x) {
+      x = Math.min(Math.max(x, 0), 1);
+      return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+    }
+    function inGamut(c) {
+      return c[0] >= 0 && c[1] >= 0 && c[2] >= 0 && c[0] <= 1 && c[1] <= 1 && c[2] <= 1;
+    }
+    function maxChroma(L, ca, cb) {
+      let lo = 0, hi = 0.45;
+      for (let i = 0; i < 20; i++) {
+        const mid = 0.5 * (lo + hi);
+        if (inGamut(oklab2lin(L, ca*mid, cb*mid))) lo = mid; else hi = mid;
+      }
+      return lo;
+    }
+    // Smooth cusp lightness for a hue (branch-free golden-section argmax of chroma).
+    function cuspL(h) {
+      const a = Math.cos(h), b = Math.sin(h), gr = 0.6180339887;
+      let lo = 0, hi = 1, c = hi - gr*(hi-lo), d = lo + gr*(hi-lo);
+      let fc = maxChroma(c, a, b), fd = maxChroma(d, a, b);
+      for (let i = 0; i < 40; i++) {
+        if (fc > fd) { hi = d; d = c; fd = fc; c = hi - gr*(hi-lo); fc = maxChroma(c, a, b); }
+        else { lo = c; c = d; fc = fd; d = lo + gr*(hi-lo); fd = maxChroma(d, a, b); }
+      }
+      return 0.5 * (lo + hi);
+    }
+    function oklch2rgb(L, h, C) {
+      const ca = Math.cos(h), cb = Math.sin(h);
+      const lin = oklab2lin(L, ca * C, cb * C);
+      return [lin2srgb1(lin[0]), lin2srgb1(lin[1]), lin2srgb1(lin[2])];
+    }
+
+    // ---------- build the hue LUT (once): arc-length remap + smoothed cusp L ----------
+    const lutTex = new Uint8Array(256 * 4);
+    (function buildHueLUT() {
+      const M = 720;
+      // 1. numerical cusp lightness per fine hue
+      const Lc = new Array(M);
+      for (let i = 0; i < M; i++) Lc[i] = cuspL(i / M * 2 * Math.PI);
+      // 2. circular Gaussian smooth (rounds the gamut-vertex kinks, e.g. blue)
+      const sig = 12 / 360 * M, rad = Math.ceil(sig * 3), Ls = new Array(M);
+      for (let i = 0; i < M; i++) {
+        let sw = 0, sv = 0;
+        for (let k = -rad; k <= rad; k++) {
+          const w = Math.exp(-0.5 * (k / sig) ** 2), j = ((i + k) % M + M) % M;
+          sw += w; sv += w * Lc[j];
+        }
+        Ls[i] = sv / sw;
+      }
+      const Lat = h => { const x = h / (2*Math.PI) * M; let i0 = (Math.floor(x)%M+M)%M, i1=(i0+1)%M; return Ls[i0] + (Ls[i1]-Ls[i0])*(x-Math.floor(x)); };
+      // 3. belt points in OKLab + cumulative arc length
+      const hs = [], pts = [], s = [0];
+      for (let i = 0; i <= M; i++) {
+        const h = i / M * 2 * Math.PI, a = Math.cos(h), b = Math.sin(h), L = Lat(h), C = maxChroma(L, a, b);
+        hs.push(h); pts.push([L, C*a, C*b]);
+        if (i > 0) s.push(s[i-1] + Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1], pts[i][2]-pts[i-1][2]));
+      }
+      const S = s[M];
+      const hueAtArc = frac => { const target = (((frac%1)+1)%1) * S; let j = 0; while (j < M && s[j+1] < target) j++; const seg = s[j+1]-s[j], f = seg > 1e-12 ? (target-s[j])/seg : 0; return hs[j] + (hs[j+1]-hs[j])*f; };
+      // 4. fill LUT at evenly-spaced (arc-length) longitudes
+      for (let k = 0; k < 256; k++) {
+        const h = hueAtArc(k / 256), L = Lat(h);
+        lutTex[k*4]   = Math.round((Math.cos(h) + 1) / 2 * 255);
+        lutTex[k*4+1] = Math.round((Math.sin(h) + 1) / 2 * 255);
+        lutTex[k*4+2] = Math.round(L * 255);
+        lutTex[k*4+3] = 255;
+      }
+    })();
+
+    const hueLUT = new THREE.DataTexture(lutTex, 256, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+    hueLUT.wrapS = THREE.RepeatWrapping;
+    hueLUT.minFilter = THREE.NearestFilter;
+    hueLUT.magFilter = THREE.NearestFilter;
+    hueLUT.needsUpdate = true;
+    sphereMat.uniforms.uHueLUT.value = hueLUT;
+
+    // LUT lookup mirroring the shader exactly (decode 8-bit, linear-interp, normalize)
+    function lutLookup(phi) {
+      const x = (((phi % 1) + 1) % 1) * 256;
+      let i0 = Math.floor(x) % 256; if (i0 < 0) i0 += 256;
+      const i1 = (i0 + 1) % 256, f = x - Math.floor(x);
+      const d = (i, o) => lutTex[i*4+o] / 255;
+      let ca = (d(i0,0) + (d(i1,0)-d(i0,0))*f) * 2 - 1;
+      let cb = (d(i0,1) + (d(i1,1)-d(i0,1))*f) * 2 - 1;
+      const Leq = d(i0,2) + (d(i1,2)-d(i0,2))*f;
+      const n = Math.hypot(ca, cb) || 1;
+      return [ca / n, cb / n, Leq];
+    }
+
+    // ---------- build the latitude LUT (once): perceptual equator->pole remap ----------
+    // One shared curve (remap is ~hue-independent): equal latitude -> equal
+    // perceptual step. g(p) with p = asin(d.y)/PI + 0.5 (0 south .. 1 north).
+    const latTex = new Uint8Array(128 * 4);
+    (function buildLatLUT() {
+      const NS = 64, HUES = 16;
+      const gTop = new Array(NS + 1).fill(0), gBot = new Array(NS + 1).fill(0);
+      for (let q = 0; q < HUES; q++) {
+        const h = q / HUES * 2 * Math.PI, a = Math.cos(h), b = Math.sin(h), Leq = cuspL(h);
+        for (const dir of [1, -1]) {                       // +1 = toward white, -1 = toward black
+          const N = 160, Ls = [], arc = [0], pts = [];
+          for (let i = 0; i <= N; i++) {
+            const L = dir > 0 ? Leq + (1 - Leq) * i / N : Leq * (1 - i / N);
+            const C = maxChroma(L, a, b);
+            Ls.push(L); pts.push([L, C*a, C*b]);
+            if (i > 0) arc.push(arc[i-1] + Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1], pts[i][2]-pts[i-1][2]));
+          }
+          const tot = arc[N], tgt = dir > 0 ? gTop : gBot;
+          for (let k = 0; k <= NS; k++) {
+            const target = k / NS * tot; let j = 0; while (j < N && arc[j+1] < target) j++;
+            const seg = arc[j+1]-arc[j], f = seg > 1e-9 ? (target-arc[j])/seg : 0;
+            const L = Ls[j] + (Ls[j+1]-Ls[j])*f;
+            tgt[k] += (dir > 0 ? (L-Leq)/(1-Leq) : (Leq-L)/Leq) / HUES;
+          }
+        }
+      }
+      const interp = (arr, s) => { const x = s*NS; const i = Math.min(NS-1, Math.floor(x)); return arr[i] + (arr[i+1]-arr[i])*(x-i); };
+      // South (toward black): perceptual even spacing (looks rich). North (toward
+      // white): hold lightness near the cusp so chroma stays vivid, collapsing to
+      // white only near the pole (s^3) -- otherwise the climb to white washes out.
+      const NORTH_K = 3;
+      for (let i = 0; i < 128; i++) {
+        const p = i / 127;                                 // 0 south .. 1 north
+        const g = p >= 0.5 ? Math.pow((p - 0.5) * 2, NORTH_K) : interp(gBot, (0.5 - p) * 2);
+        latTex[i*4] = Math.round(Math.min(Math.max(g, 0), 1) * 255);
+        latTex[i*4+3] = 255;
+      }
+    })();
+
+    const latLUT = new THREE.DataTexture(latTex, 128, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+    latLUT.wrapS = THREE.ClampToEdgeWrapping;
+    latLUT.minFilter = THREE.NearestFilter;
+    latLUT.magFilter = THREE.NearestFilter;
+    latLUT.needsUpdate = true;
+    sphereMat.uniforms.uLatLUT.value = latLUT;
+
+    function latLookup(p) {                                 // mirrors the shader
+      p = Math.min(Math.max(p, 0), 1);
+      const x = p * 127, i0 = Math.floor(x), i1 = Math.min(i0 + 1, 127), f = x - i0;
+      return latTex[i0*4]/255 + (latTex[i1*4]/255 - latTex[i0*4]/255) * f;
+    }
+    // latitude -> lightness, perceptually remapped, equator pinned at Leq
+    function latToL(t, Leq) {
+      const p = Math.asin(Math.min(Math.max(t, -1), 1)) / Math.PI + 0.5;
+      const g = latLookup(p);
+      return t >= 0 ? Leq + (1 - Leq) * g : Leq * (1 - g);
+    }
+
+    // White-building mode (testing toggle). 'rgbw' = RGB whitens + W ramps;
+    // 'wonly' = RGB stays the hue and dims while W supplies the white.
+    let whiteMode = 'rgbw';
+
+    // Perceptual target shown on the sphere and in the reticle. Unchanged by toggle.
+    function fieldRGB(d) {
+      const phi = Math.atan2(d.z, d.x) / (2 * Math.PI) + 0.5;
+      const [ca, cb, Leq] = lutLookup(phi);
+      const L = latToL(d.y, Leq);
+      const C = maxChroma(L, ca, cb);
+      const lin = oklab2lin(L, ca * C, cb * C);
+      return [lin2srgb1(lin[0]), lin2srgb1(lin[1]), lin2srgb1(lin[2])].map(v => Math.round(v * 255));
+    }
+
+    // The actual channels sent to WLED, decomposed per the active mode.
+    function sendRGBW(d) {
+      const phi = Math.atan2(d.z, d.x) / (2 * Math.PI) + 0.5;
+      const [ca, cb, Leq] = lutLookup(phi);
+      const t = d.y, u = Math.max(0, t);
+      const L = (whiteMode === 'wonly' && t >= 0) ? Leq : latToL(t, Leq);
+      const C = maxChroma(L, ca, cb);
+      const lin = oklab2lin(L, ca * C, cb * C);
+      let rgb = [lin2srgb1(lin[0]), lin2srgb1(lin[1]), lin2srgb1(lin[2])];
+      if (whiteMode === 'wonly' && t >= 0) rgb = rgb.map(v => v * (1 - u)); // hold equator, dim as W rises
+      return [rgb[0], rgb[1], rgb[2], u].map(v => Math.round(v * 255));
+    }
+
+    // ---------- HUD ----------
+    const reticle = document.getElementById('reticle');
+    const dot = document.getElementById('dot');
+    const hint = document.getElementById('hint');
+    const modeBtn = document.getElementById('mode');
+    const out = { R: document.getElementById('vR'), G: document.getElementById('vG'),
+                  B: document.getElementById('vB'), W: document.getElementById('vW') };
+
+    function paintHUD(field, sent) {
+      reticle.style.backgroundColor = `rgb(${field[0]},${field[1]},${field[2]})`;
+      out.R.textContent = sent[0]; out.G.textContent = sent[1];
+      out.B.textContent = sent[2]; out.W.textContent = sent[3];
+    }
+
+    // ---------- WLED link ----------
+    let lastSent = 0, pending = null, linkSeen = false;
+
+    function sendToWLED([r, g, b, w]) {
+      // relative URL: works when served from the device, no-ops elsewhere
+      fetch('/json/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on: true, seg: [{ col: [[r, g, b, w]] }] })
+      }).then(() => {
+        linkSeen = true; dot.className = 'live'; dot.title = 'Sending to WLED';
+      }).catch(() => {
+        dot.className = linkSeen ? 'off' : ''; dot.title = 'No WLED connection';
+      });
+    }
+
+    function queueSend(rgbw) {
+      const now = performance.now();
+      if (now - lastSent >= SEND_MS) { lastSent = now; pending = null; sendToWLED(rgbw); }
+      else { pending = rgbw; }
+    }
+    // flush the final value shortly after motion settles
+    setInterval(() => {
+      if (pending && performance.now() - lastSent >= SEND_MS) {
+        lastSent = performance.now(); const p = pending; pending = null; sendToWLED(p);
+      }
+    }, SEND_MS);
+
+    // ---------- initial orientation from current WLED color (best effort) ----------
+    function srgb2lin1(x) {
+      x /= 255;
+      return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    }
+    function rgbToOkLh(r, g, b) {
+      const R = srgb2lin1(r), G = srgb2lin1(g), B = srgb2lin1(b);
+      const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+      const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+      const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+      const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
+      const a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+      const bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+      return [L, Math.atan2(bb, a)];
+    }
+    function orientTo(r, g, b) {
+      const [L, h] = rgbToOkLh(r, g, b);
+      // find the LUT longitude whose hue direction best matches the target hue
+      let best = 0, bestd = 1e9;
+      for (let i = 0; i < 256; i++) {
+        const ca = lutTex[i*4]/255*2 - 1, cb = lutTex[i*4+1]/255*2 - 1;
+        let dd = Math.abs(((Math.atan2(cb, ca) - h + Math.PI) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) - Math.PI);
+        if (dd < bestd) { bestd = dd; best = i; }
+      }
+      const phi = best / 256, Leq = lutTex[best*4+2] / 255;
+      // invert the perceptual latitude->lightness mapping via the lat LUT
+      let gT, side;
+      if (L >= Leq) { gT = (1 - Leq > 1e-6) ? (L - Leq) / (1 - Leq) : 0; side = 1; }
+      else          { gT = (Leq > 1e-6) ? (Leq - L) / Leq : 0; side = -1; }
+      gT = Math.max(0, Math.min(1, gT));
+      const loI = side > 0 ? 64 : 0, hiI = side > 0 ? 128 : 64;
+      let bi = loI, bestg = 1e9;
+      for (let i = loI; i < hiI; i++) { const dd = Math.abs(latTex[i*4]/255 - gT); if (dd < bestg) { bestg = dd; bi = i; } }
+      const lat = (bi / 127 - 0.5) * Math.PI, ch = Math.cos(lat);
+      const az = (phi - 0.5) * 2 * Math.PI;  // inverse of phi = atan2(z,x)/2pi + 0.5
+      camera.position.set(
+        CAM_R * ch * Math.cos(az),
+        CAM_R * Math.sin(lat),
+        CAM_R * ch * Math.sin(az)
+      );
+      controls.update();
+    }
+    fetch('/json/state')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(s => {
+        linkSeen = true; dot.className = 'live';
+        const c = s && s.seg && s.seg[0] && s.seg[0].col && s.seg[0].col[0];
+        if (c && (c[0] + c[1] + c[2] > 0)) orientTo(c[0], c[1], c[2]);
+      })
+      .catch(() => { dot.className = ''; });
+
+    // ---------- interaction wiring ----------
+    let hinted = false;
+    controls.addEventListener('change', () => {
+      if (!hinted) { hinted = true; hint.style.opacity = '0'; }
+    });
+
+    // ---------- resize ----------
+    function resize() {
+      const w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ---------- loop ----------
+    let prev = '';
+    function update(force) {
+      const d = camera.position.clone().normalize(); // center-of-view surface point
+      const field = fieldRGB(d);
+      const sent = sendRGBW(d);
+      const key = whiteMode + '|' + sent.join(',');
+      if (force || key !== prev) {
+        prev = key;
+        paintHUD(field, sent);
+        queueSend(sent);
+      }
+    }
+
+    modeBtn.addEventListener('click', () => {
+      whiteMode = (whiteMode === 'rgbw') ? 'wonly' : 'rgbw';
+      modeBtn.textContent = (whiteMode === 'rgbw') ? 'RGB + W' : 'W only';
+      update(true); // re-decompose and resend the current target immediately
+    });
+
+    function loop() {
+      requestAnimationFrame(loop);
+      controls.update();
+      camera.position.setLength(CAM_R); // keep orbit radius pinned through damping
+      update(false);
+      renderer.render(scene, camera);
+    }
+    loop();
+  </script>
+</body>
+
+</html>

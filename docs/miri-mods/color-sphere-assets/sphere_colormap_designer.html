@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Miri — Sphere Colormap Designer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;background:#080a0d;color:#cdd2db;font:11px/1.5 'SF Mono',ui-monospace,monospace;overflow:hidden;}
+body{display:flex;flex-direction:column;padding:10px 12px;gap:7px;}
+#hdr{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+#hdr h1{font-size:13px;font-weight:600;color:#e4e8f0;letter-spacing:.04em;}
+#hdr .desc{font-size:10px;color:#2a3040;}
+#hdr .chl{margin-left:auto;font-size:11px;color:#6b7280;}
+#hdr .chl b{color:#93c5fd;}
+.mrow{display:flex;gap:8px;flex-shrink:0;align-items:center;}
+.mrow .cap{font-size:10px;color:#4b5563;}
+.mbtn{font-family:inherit;font-size:11px;background:#0d1117;color:#6b7280;border:1px solid #1a2230;padding:4px 14px;border-radius:5px;cursor:pointer;transition:all .12s;}
+.mbtn:hover:not(.on){border-color:#374151;color:#cdd2db;}
+.mbtn.on{background:#172554;color:#93c5fd;border-color:#1d4ed8;font-weight:600;}
+#mwrap{flex:1;min-height:0;position:relative;border-radius:7px;overflow:hidden;border:1px solid #1a2230;}
+#map,#ovl{position:absolute;inset:0;width:100%;height:100%;}
+#ovl{pointer-events:none;}
+#inf{font-size:11px;color:#6b7280;padding:4px 10px;background:#0d1117;border:1px solid #1a2230;border-radius:5px;display:flex;align-items:center;gap:10px;flex-shrink:0;min-height:26px;flex-wrap:wrap;}
+#inf b{color:#cdd2db;}
+.sw{width:12px;height:12px;border-radius:2px;border:1px solid rgba(255,255,255,.12);display:inline-block;flex-shrink:0;}
+.ctr{display:flex;flex-wrap:wrap;gap:7px;flex-shrink:0;}
+.c{display:flex;align-items:center;gap:7px;flex:1 1 160px;}
+.c label{font-size:10px;color:#6b7280;white-space:nowrap;width:88px;}
+.c input[type=range]{flex:1;min-width:50px;accent-color:#3b82f6;cursor:pointer;}
+.c input.num{width:44px;min-width:44px;flex:0 0 44px;text-align:right;font-variant-numeric:tabular-nums;
+  font-family:inherit;font-size:11px;color:#cdd2db;background:#0d1117;border:1px solid #1a2230;
+  border-radius:3px;padding:2px 4px;}
+.c input.num:focus{border-color:#3b82f6;outline:none;color:#e4e8f0;}
+.c input.num:disabled{opacity:.45;cursor:not-allowed;}
+#exportBtn{margin-left:auto;}
+.br{display:flex;gap:5px;flex-wrap:wrap;align-items:center;flex-shrink:0;}
+.br .cap{font-size:10px;color:#4b5563;}
+button{font-family:inherit;font-size:10px;letter-spacing:.04em;background:#0d1117;color:#6b7280;border:1px solid #1a2230;padding:3px 10px;border-radius:4px;cursor:pointer;}
+button.on{background:#172554;color:#93c5fd;border-color:#1d4ed8;}
+button:hover:not(.on){border-color:#374151;color:#cdd2db;}
+.wr{flex-shrink:0;}
+.wl{font-size:10px;color:#4b5563;display:flex;justify-content:space-between;margin-bottom:3px;}
+#wst{display:block;width:100%;height:16px;border-radius:4px;border:1px solid #1a2230;}
+.ft{font-size:10px;color:#1e2535;flex-shrink:0;}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <h1>Sphere Colormap Designer</h1>
+  <span class="desc">X = longitude 0°→360° &nbsp;·&nbsp; Y = latitude (▲ N = white, ▼ S = black) &nbsp;·&nbsp; equator = max saturation &nbsp;·&nbsp; helix traces = spherical epicycloids (satellite curves)</span>
+  <span class="chl">ch: <b id="chlLabel">RGB</b></span>
+</div>
+
+<div class="mrow">
+  <span class="cap">Algorithm:</span>
+  <button class="mbtn on" id="mOK" onclick="setMode('oklab')">OKLab straight line</button>
+  <button class="mbtn"    id="mHX" onclick="setMode('helix')">Helix + OKLab</button>
+  <button class="mbtn"    id="mHR" onclick="setMode('helixrgb')">Helix RGB direct</button>
+  <button id="bPreview" type="button" onclick="setPreviewOnly(!previewOnly)" title="Skip full-res updates while tuning">Preview only</button>
+  <button id="importBtn" type="button" title="Paste previous settings JSON to restore controls">Import settings</button>
+  <button id="exportBtn" type="button" title="Copy all settings as JSON">Export settings</button>
+</div>
+
+<div id="mwrap">
+  <canvas id="map"></canvas>
+  <canvas id="ovl"></canvas>
+</div>
+
+<div id="inf"><span>hover to inspect values</span></div>
+
+<div class="ctr">
+  <div class="c"><label>Saturation</label>   <input id="sat" type="range" min="0"  max="1"  step=".01" value="1"><input class="num" id="satV" type="text" value="1.00"></div>
+  <div class="c"><label>Chroma gamma</label>  <input id="cg"  type="range" min=".5" max="3"  step=".05" value="1"><input class="num" id="cgV" type="text" value="1.00"></div>
+  <div class="c"><label>W ramp gamma</label>  <input id="wg"  type="range" min=".1" max="20" step=".1"  value="1" data-max-default="20"><input class="num" id="wgV" type="text" value="1.0"></div>
+</div>
+
+<div class="ctr" id="cOK">
+  <div class="c"><label>Flatten L→0.5</label><input id="flat" type="range" min="0"  max=".8" step=".01" value="0"><input class="num" id="flatV" type="text" value="0.00"></div>
+</div>
+
+<div class="ctr" id="cHX" style="display:none">
+  <div class="c"><label>k — fixed circle</label><input id="hk"  type="range" min="1"  max="9"  step=".1"  value="5"><input class="num" id="hkV" type="text" value="0.50"></div>
+  <div class="c"><label>q — epicycloid</label><input id="hq"  type="range" min=".25" max="4"  step=".05" value="1"><input class="num" id="hqV" type="text" value="1.00"></div>
+  <div class="c"><label>Global blur</label>  <input id="ha"  type="range" min=".1" max="10" step=".1"  value="5"><input class="num" id="haV" type="text" value="5.0"></div>
+  <div class="c"><label>Soft tail</label>    <input id="ht"  type="range" min="0"  max="1"  step=".01" value=".18"><input class="num" id="htV" type="text" value="0.18"></div>
+</div>
+
+<div class="ctr" id="cHXblur" style="display:none">
+  <div class="c"><label style="color:#ff7070">R blur ↔</label><input id="hRH" type="range" min=".1" max="10" step=".1" value="5"><input class="num" id="hRHV" type="text" value="5.0"></div>
+  <div class="c"><label style="color:#ff7070">R blur ↕</label><input id="hRV" type="range" min=".1" max="10" step=".1" value="5"><input class="num" id="hRVV" type="text" value="5.0"></div>
+  <div class="c"><label style="color:#55ff6a">G blur ↔</label><input id="hGH" type="range" min=".1" max="10" step=".1" value="5"><input class="num" id="hGHV" type="text" value="5.0"></div>
+  <div class="c"><label style="color:#55ff6a">G blur ↕</label><input id="hGV" type="range" min=".1" max="10" step=".1" value="5"><input class="num" id="hGVV" type="text" value="5.0"></div>
+  <div class="c"><label style="color:#5599ff">B blur ↔</label><input id="hBH" type="range" min=".1" max="10" step=".1" value="5"><input class="num" id="hBHV" type="text" value="5.0"></div>
+  <div class="c"><label style="color:#5599ff">B blur ↕</label><input id="hBV" type="range" min=".1" max="10" step=".1" value="5"><input class="num" id="hBVV" type="text" value="5.0"></div>
+</div>
+
+<div class="ctr" id="cHXphase" style="display:none">
+  <div class="c"><label style="color:#ff7070">R start °</label><input id="hRO" type="range" min="-180" max="180" step="1" value="0"><input class="num" id="hROV" type="text" value="0"></div>
+  <div class="c"><label style="color:#55ff6a">G start °</label><input id="hGO" type="range" min="-180" max="180" step="1" value="0"><input class="num" id="hGOV" type="text" value="0"></div>
+  <div class="c"><label style="color:#5599ff">B start °</label><input id="hBO" type="range" min="-180" max="180" step="1" value="0"><input class="num" id="hBOV" type="text" value="0"></div>
+  <div class="c"><label>Center shift °</label><input id="hVO" type="range" min="-70" max="70" step="1" value="0"><input class="num" id="hVOV" type="text" value="0"></div>
+  <div class="c"><label>Min shift °</label><input id="hVMN" type="range" min="-70" max="70" step="1" value="0"><input class="num" id="hVMNV" type="text" value="0"></div>
+  <div class="c"><label>Max shift °</label><input id="hVMX" type="range" min="-70" max="70" step="1" value="0"><input class="num" id="hVMXV" type="text" value="0"></div>
+</div>
+
+<div class="br">
+  <span class="cap">Channel:</span>
+  <button id="bRGB" onclick="setCh('RGB')">RGB</button>
+  <button id="bR"   onclick="setCh('R')">R</button>
+  <button id="bG"   onclick="setCh('G')">G</button>
+  <button id="bB"   onclick="setCh('B')">B</button>
+  <button id="bL"   onclick="setCh('L')">L value</button>
+  <button id="bW"   onclick="setCh('W')">W channel</button>
+  <button id="bWhite" type="button" onclick="setWhiteRamp(!whiteRamp)" title="Toggle north white ramp on RGB preview">RGB + W</button>
+  <span class="cap" id="fillCap" style="display:none;margin-left:8px">Helix:</span>
+  <button id="bFill" style="display:none" onclick="setFillZones(!helixFillZones)">Zone fill</button>
+</div>
+
+<div class="wr">
+  <div class="wl"><span>W channel · equator (left, 0) → north pole (right, 255)</span><span id="wgL">γ 1.0</span></div>
+  <canvas id="wst" width="1440" height="16"></canvas>
+</div>
+
+<p class="ft">Helix + Zone fill = soft weight blend plus north-of-curve territories · Helix RGB direct = same curves without OKLab hue · Preview only = quarter-res canvas for fast scrubbing</p>
+
+<script>
+// ── OKLab colour math ─────────────────────────────────────────────────────────
+function oklab2lin(L,a,b){
+  const l_=L+.3963377774*a+.2158037573*b,
+        m_=L-.1055613458*a-.0638541728*b,
+        s_=L-.0894841775*a-1.2914855480*b;
+  const l=l_*l_*l_,m=m_*m_*m_,s=s_*s_*s_;
+  return[4.0767416621*l-3.3077115913*m+.2309699292*s,
+        -1.2684380046*l+2.6097574011*m-.3413193965*s,
+        -.0041960863*l-.7034186147*m+1.7076147010*s];
+}
+const srgb8=x=>{x=Math.min(Math.max(x,0),1);return(x<=.0031308?12.92*x:1.055*Math.pow(x,1/2.4)-.055)*255+.5|0;};
+const inGamut=([r,g,b])=>r>=-1e-5&&g>=-1e-5&&b>=-1e-5&&r<=1+1e-5&&g<=1+1e-5&&b<=1+1e-5;
+function maxChroma(L,ca,cb){
+  let lo=0,hi=.45;
+  for(let i=0;i<20;i++){const m=(lo+hi)/2;inGamut(oklab2lin(L,ca*m,cb*m))?lo=m:hi=m;}
+  return lo;
+}
+function cuspL(h){
+  const a=Math.cos(h),b=Math.sin(h),gr=.6180339887;
+  let lo=0,hi=1,c=hi-gr*(hi-lo),d=lo+gr*(hi-lo),fc=maxChroma(c,a,b),fd=maxChroma(d,a,b);
+  for(let i=0;i<40;i++){
+    if(fc>fd){hi=d;d=c;fd=fc;c=hi-gr*(hi-lo);fc=maxChroma(c,a,b);}
+    else     {lo=c;c=d;fc=fd;d=lo+gr*(hi-lo);fd=maxChroma(d,a,b);}
+  }
+  return(lo+hi)/2;
+}
+
+// ── Per-hue tables ────────────────────────────────────────────────────────────
+let N=720, Lc, Cc, Leq, Ceq;
+const P2=2*Math.PI;
+
+function buildCusp(n){
+  N=n; Lc=new Float32Array(N); Cc=new Float32Array(N);
+  Leq=new Float32Array(N); Ceq=new Float32Array(N);
+  for(let i=0;i<N;i++){
+    const h=i/N*P2;
+    Lc[i]=cuspL(h); Cc[i]=maxChroma(Lc[i],Math.cos(h),Math.sin(h));
+  }
+}
+function updateEq(){
+  const f=flat, recomp=f>.005;
+  for(let i=0;i<N;i++){
+    Leq[i]=Lc[i]*(1-f)+.5*f;
+    Ceq[i]=(recomp?maxChroma(Leq[i],Math.cos(i/N*P2),Math.sin(i/N*P2)):Cc[i])*sat;
+  }
+}
+
+function sampleEqAtAngle(theta){
+  const h=((theta%P2)+P2)%P2;
+  const x=h/P2*N;
+  let i0=Math.floor(x)%N; if(i0<0) i0+=N;
+  const i1=(i0+1)%N;
+  const f=x-Math.floor(x);
+  return{
+    Leqv:Leq[i0]+(Leq[i1]-Leq[i0])*f,
+    Ceqv:Ceq[i0]+(Ceq[i1]-Ceq[i0])*f
+  };
+}
+
+// ── Global state ──────────────────────────────────────────────────────────────
+// OKLab hue angles of sRGB primaries R, G, B
+const LAB_H=[0.520, 2.487, -1.668];
+
+let mode='oklab', ch='RGB', hov=null;
+let sat=1, flat=0, cg=1, wg=1;
+let whiteRamp=true;
+let helixK=5, helixQ=1, helixAmp=5, helixTail=.18;
+let helixBlurH=[5,5,5], helixBlurV=[5,5,5];
+let helixOffsetDeg=[0,0,0]; // equator start longitude offset per channel R,G,B
+let helixLatOffsetDeg=0;     // center shift for helix latitudes
+let helixLatMinShiftDeg=0;   // lower extreme shift
+let helixLatMaxShiftDeg=0;   // upper extreme shift
+let helixFillZones=false;
+let previewOnly=false;
+let cW=720, cH=360;
+
+function isHelixMode(){ return mode === 'helix' || mode === 'helixrgb'; }
+function previewDims(){ return [Math.max(48, cW / 4 | 0), Math.max(24, cH / 4 | 0)]; }
+
+// ── Spherical epicycloid / satellite-curve math (mathcurve.com helicespheric) ───
+// Horizontal (equatorial) projection of these curves is an epicycloid with parameter q.
+// k = r/R is the fixed-circle radius ratio (0 < k < 1).
+function helixKCurve(){ return 0.05 + 0.9 * (helixK / 10); }
+
+function helixXYZ(t, t0, q, k){
+  const omega = Math.acos(Math.min(0.999, Math.max(0.001, k)));
+  const cw = Math.cos(omega * 0.5), sw = Math.sin(omega * 0.5);
+  const qt = q * t + t0;
+  let x = (q - Math.cos(omega)) * Math.cos(t)
+        + cw * cw * Math.cos((1 - q) * t - t0)
+        - sw * sw * Math.cos((1 + q) * t + t0);
+  let y = (q - Math.cos(omega)) * Math.sin(t)
+        + cw * cw * Math.sin((1 - q) * t - t0)
+        - sw * sw * Math.sin((1 + q) * t + t0);
+  let z = Math.sin(omega) * (1 - Math.cos(qt));
+  const n = Math.hypot(x, y, z) || 1;
+  return [x / n, y / n, z / n];
+}
+
+function sphVec(lon, lat){
+  const cl = Math.cos(lat);
+  return [cl * Math.cos(lon), cl * Math.sin(lon), Math.sin(lat)];
+}
+
+function helixLonLat(t, t0, q, k){
+  const [x, y, z] = helixXYZ(t, t0, q, k);
+  return [Math.atan2(y, x), Math.asin(Math.max(-1, Math.min(1, z)))];
+}
+
+function shiftedLat(lat){
+  const off = helixLatOffsetDeg * Math.PI / 180;
+  return Math.max(-Math.PI / 2 + 1e-4, Math.min(Math.PI / 2 - 1e-4, lat + off));
+}
+
+function shapeHelixLat(rawLat, rawMin, rawMid, rawMax){
+  const c = helixLatOffsetDeg * Math.PI / 180;
+  const dMin = helixLatMinShiftDeg * Math.PI / 180;
+  const dMax = helixLatMaxShiftDeg * Math.PI / 180;
+  let tMin = rawMin + dMin;
+  let tMid = rawMid + c;
+  let tMax = rawMax + dMax;
+  if (tMid < tMin) tMid = tMin;
+  if (tMax < tMid) tMax = tMid;
+
+  let lat;
+  if (rawLat <= rawMid){
+    const den = Math.max(1e-9, rawMid - rawMin);
+    const f = (rawLat - rawMin) / den;
+    lat = tMin + (tMid - tMin) * f;
+  } else {
+    const den = Math.max(1e-9, rawMax - rawMid);
+    const f = (rawLat - rawMid) / den;
+    lat = tMid + (tMax - tMid) * f;
+  }
+  return Math.max(-Math.PI / 2 + 1e-4, Math.min(Math.PI / 2 - 1e-4, lat));
+}
+
+function wrapAngle(a){
+  return a - Math.round(a / P2) * P2;
+}
+
+function phaseForEquatorLon(targetLon, q, k){
+  const targetLat = -helixLatOffsetDeg * Math.PI / 180;
+  let bestT0 = 0, bestErr = 1e9;
+  for (let t0 = 0; t0 < P2; t0 += 0.004){
+    for (let t = -P2; t <= P2 * 2; t += 0.008){
+      const [lon, lat] = helixLonLat(t, t0, q, k);
+      if (Math.abs(lat - targetLat) > 0.025) continue;
+      const err = Math.abs(wrapAngle(lon - targetLon));
+      if (err < bestErr){ bestErr = err; bestT0 = t0; }
+    }
+  }
+  return bestT0;
+}
+
+let helixPhases = [0, 0, 0];
+let helixSamples = null;
+let helixField = null;   // Float32Array[nLat*nLon*3] — anisotropic falloff distance (0 = on curve, ≥1 = outside)
+let helixFieldLon = 360, helixFieldLat = 180;
+let helixCurveKey = '';
+
+function helixSpread(ch, axis){
+  const base = axis === 'h' ? helixBlurH[ch] : helixBlurV[ch];
+  return Math.max(0.05, helixAmp * base / 5) * Math.PI / 10;
+}
+
+function anisoDist(dPhi, dLat, ch){
+  const h = helixSpread(ch, 'h'), v = helixSpread(ch, 'v');
+  return Math.sqrt((dPhi / h) ** 2 + (dLat / v) ** 2);
+}
+
+function falloffFromDist(d){
+  if (d < 1) return Math.cos(d * Math.PI * 0.5);
+  if (helixTail <= 0) return 0;
+  return helixTail * Math.exp(-(d - 1) * 1.8);
+}
+
+function sampleHelixCurve(t0, q, k){
+  const raw = [];
+  let rMin = Infinity, rMax = -Infinity;
+  for (let t = -P2; t <= P2 * 3; t += 0.012){
+    const xyz = helixXYZ(t, t0, q, k);
+    const lon = Math.atan2(xyz[1], xyz[0]);
+    const latRaw = Math.asin(Math.max(-1, Math.min(1, xyz[2])));
+    rMin = Math.min(rMin, latRaw);
+    rMax = Math.max(rMax, latRaw);
+    raw.push({ xyz, lon, latRaw, t });
+  }
+  const rMid = 0.5 * (rMin + rMax);
+  const out = raw.map(s => ({
+    xyz: s.xyz,
+    lon: s.lon,
+    lat: shapeHelixLat(s.latRaw, rMin, rMid, rMax),
+    t: s.t
+  }));
+  return out;
+}
+
+function rebuildHelixCurves(){
+  const q = helixQ, k = helixKCurve();
+  helixPhases = LAB_H.map((h, i) =>
+    phaseForEquatorLon(h + helixOffsetDeg[i] * Math.PI / 180, q, k));
+  helixSamples = helixPhases.map(t0 => sampleHelixCurve(t0, q, k));
+  helixCurveKey = `${q}|${k}|${helixPhases.map(v => v.toFixed(4)).join(',')}|${helixOffsetDeg.join(',')}|${helixLatOffsetDeg}|${helixLatMinShiftDeg}|${helixLatMaxShiftDeg}`;
+}
+
+function previewFieldDims(){
+  return [120, 60];
+}
+
+function rebuildHelixField(nLon = 360, nLat = 180){
+  if (!helixSamples) rebuildHelixCurves();
+  const field = new Float32Array(nLon * nLat * 3);
+  for (let iy = 0; iy < nLat; iy++){
+    const lat = (1 - iy / (nLat - 1)) * Math.PI - Math.PI / 2;
+    for (let ix = 0; ix < nLon; ix++){
+      const phi = ix / nLon * P2;
+      for (let i = 0; i < 3; i++){
+        let best = 1e9;
+        for (const s of helixSamples[i]){
+          const dPhi = wrapAngle(phi - s.lon);
+          const dLat = lat - s.lat;
+          best = Math.min(best, anisoDist(dPhi, dLat, i));
+        }
+        field[(iy * nLon + ix) * 3 + i] = best;
+      }
+    }
+  }
+  helixField = field;
+  helixFieldLon = nLon;
+  helixFieldLat = nLat;
+}
+
+function rebuildHelixData(){
+  rebuildHelixCurves();
+  rebuildHelixField();
+}
+
+function helixFieldDistances(phi, lat){
+  if (!helixField) rebuildHelixField();
+  const nLon = helixFieldLon, nLat = helixFieldLat;
+  const u = (lat + Math.PI / 2) / Math.PI;
+  const iy = Math.min(nLat - 1, Math.max(0, Math.round((1 - u) * (nLat - 1))));
+  const ix = Math.round(((phi % P2) + P2) % P2 / P2 * nLon) % nLon;
+  const base = (iy * nLon + ix) * 3;
+  return [helixField[base], helixField[base + 1], helixField[base + 2]];
+}
+
+function helixChannelWeights(phi, lat){
+  const dists = helixFieldDistances(phi, lat);
+  return dists.map(falloffFromDist);
+}
+
+function helixHueWeights(phi, lat){
+  const dists = helixFieldDistances(phi, lat);
+  const weights = dists.map(falloffFromDist);
+  let wa = 0, wb = 0, wSum = 0;
+  for (let i = 0; i < 3; i++){
+    const w = weights[i];
+    if (w <= 0) continue;
+    wa += w * Math.cos(LAB_H[i]);
+    wb += w * Math.sin(LAB_H[i]);
+    wSum += w;
+  }
+  const norm = Math.hypot(wa, wb);
+  if (norm < 1e-9) return { ca: 1, cb: 0, mix: 0, weights: [0, 0, 0] };
+  return { ca: wa / norm, cb: wb / norm, mix: Math.min(1, wSum), weights };
+}
+
+/** Zone-fill boundary at (phi, lat): lat of the curve arm directly south of this pixel, or null. */
+function zoneBoundAtPixel(samples, phi, lat, tol = 0.07){
+  let floor = null, minLat = Infinity, count = 0;
+  for (const s of samples){
+    if (Math.abs(wrapAngle(phi - s.lon)) > tol) continue;
+    count++;
+    minLat = Math.min(minLat, s.lat);
+    if (s.lat <= lat + 0.004) floor = floor === null ? s.lat : Math.max(floor, s.lat);
+  }
+  if (!count) return null;
+  // Curve loops / goes off the top: multiple heights at this longitude — use arm under pixel.
+  if (floor !== null) return floor;
+  // Pixel is south of every nearby curve sample (curve only exists higher up, or off-screen north).
+  return minLat;
+}
+
+function isNorthOfCurve(samples, phi, lat){
+  const bound = zoneBoundAtPixel(samples, phi, lat);
+  return bound !== null && lat >= bound - 0.004;
+}
+
+/** Soft weight blend + north-of-curve pure territories (not a replacement for base color). */
+function zoneFillRGB(phi, lat, weights){
+  if (!helixSamples) return [0, 0, 0];
+  const dim = Math.max(0.15, (lat + Math.PI / 2) / Math.PI);
+  let r = weights[0], g = weights[1], b = weights[2];
+  for (let i = 0; i < 3; i++){
+    if (isNorthOfCurve(helixSamples[i], phi, lat)){
+      if (i === 0) r = Math.max(r, 1);
+      else if (i === 1) g = Math.max(g, 1);
+      else b = Math.max(b, 1);
+    }
+  }
+  const m = Math.max(1e-9, r + g + b);
+  return [
+    Math.min(255, r / m * 255 * dim + .5 | 0),
+    Math.min(255, g / m * 255 * dim + .5 | 0),
+    Math.min(255, b / m * 255 * dim + .5 | 0)
+  ];
+}
+
+function compositeZoneFill(baseR, baseG, baseB, zone){
+  return [
+    Math.min(255, baseR * 0.45 + zone[0] * 0.55 + .5 | 0),
+    Math.min(255, baseG * 0.45 + zone[1] * 0.55 + .5 | 0),
+    Math.min(255, baseB * 0.45 + zone[2] * 0.55 + .5 | 0)
+  ];
+}
+
+function northChromaScale(u, gamU){
+  if (u < 0) return 1 - gamU;
+  return whiteRamp ? (1 - gamU) : 1;
+}
+
+function latitudeLightness(Leqv, u){
+  if (u >= 0) return whiteRamp ? Leqv + u * (1 - Leqv) : Leqv;
+  return Leqv * (1 + u);
+}
+
+function applyNorthDim(r, g, b, u){
+  if (whiteRamp || u <= 0) return [r, g, b];
+  const dim = 1 - u;
+  return [r * dim, g * dim, b * dim];
+}
+
+function helixDirectRGB(phi, lat, u, gamU){
+  const weights = helixChannelWeights(phi, lat);
+  let r = weights[0], g = weights[1], b = weights[2];
+  const wSum = r + g + b;
+  const mix = wSum > 1e-9 ? Math.min(1, wSum) : 0;
+  if (wSum > 1e-9){ r /= wSum; g /= wSum; b /= wSum; }
+  r *= sat * mix; g *= sat * mix; b *= sat * mix;
+  const chroma = northChromaScale(u, gamU);
+  r *= chroma; g *= chroma; b *= chroma;
+  if (u >= 0){
+    if (whiteRamp){
+      r += u * (1 - r); g += u * (1 - g); b += u * (1 - b);
+    } else [r, g, b] = applyNorthDim(r, g, b, u);
+  } else {
+    const dark = 1 + u;
+    r *= dark; g *= dark; b *= dark;
+  }
+  return { R: srgb8(r), G: srgb8(g), B: srgb8(b), weights };
+}
+
+const mapC=document.getElementById('map');
+const ovlC=document.getElementById('ovl');
+const offC=document.createElement('canvas');
+const offCtx=offC.getContext('2d');
+
+function sizeCanvases(){
+  const r=document.getElementById('mwrap').getBoundingClientRect();
+  cW=Math.round(r.width); cH=Math.round(r.height);
+  mapC.width=cW; mapC.height=cH;
+  ovlC.width=cW; ovlC.height=cH;
+  cancelPendingRender();
+  renderGen++;
+}
+
+// ── Render pipeline — one generation at a time, stale work is dropped ─────────
+let renderGen = 0;
+let previewRaf = 0;
+let helixTimer = null;
+let fullTimer = null;
+let previewHelixTimer = null;
+let previewDirty = false;
+let pendingHelixRebuild = false;
+let pendingHelixCurves = false;
+
+function cancelFullResPending(){
+  clearTimeout(helixTimer); helixTimer = null;
+  clearTimeout(fullTimer); fullTimer = null;
+}
+
+function cancelPreviewPending(){
+  if (previewRaf){ cancelAnimationFrame(previewRaf); previewRaf = 0; }
+  clearTimeout(previewHelixTimer); previewHelixTimer = null;
+  previewDirty = false;
+  pendingHelixRebuild = false;
+  pendingHelixCurves = false;
+}
+
+function cancelPendingRender(){
+  cancelPreviewPending();
+  cancelFullResPending();
+}
+
+function flushPreviewRender(){
+  previewRaf = 0;
+  if (!previewDirty && !pendingHelixRebuild) return;
+
+  const gen = ++renderGen;
+
+  if (isHelixMode() && pendingHelixRebuild){
+    if (pendingHelixCurves) rebuildHelixCurves();
+    const [flon, flat] = previewFieldDims();
+    rebuildHelixField(flon, flat);
+    pendingHelixRebuild = false;
+    pendingHelixCurves = false;
+    previewDirty = true;
+  }
+
+  if (previewDirty){
+    previewDirty = false;
+    const [pW, pH] = previewDims();
+    if (renderAt(pW, pH, gen)) drawWstrip();
+    drawOvl();
+  }
+}
+
+/** Preview-only path: quarter-res only, coalesced to one rAF per frame. */
+function queuePreviewRender({ helixCurves = false, helixRebuildNow = false } = {}){
+  if (helixCurves) pendingHelixCurves = true;
+  previewDirty = true;
+
+  if (helixRebuildNow){
+    pendingHelixRebuild = true;
+  } else if (isHelixMode()){
+    clearTimeout(previewHelixTimer);
+    previewHelixTimer = setTimeout(() => {
+      previewHelixTimer = null;
+      pendingHelixRebuild = true;
+      previewDirty = true;
+      if (!previewRaf) previewRaf = requestAnimationFrame(flushPreviewRender);
+    }, 160);
+  }
+
+  if (!previewRaf) previewRaf = requestAnimationFrame(flushPreviewRender);
+}
+
+function renderAt(rW, rH, gen){
+  if (gen !== renderGen) return false;
+  if (previewOnly && rW === cW && rH === cH) return false;
+  offC.width = rW; offC.height = rH;
+  const img = offCtx.createImageData(rW, rH), d = img.data;
+  if (isHelixMode() && !helixField){
+    if (rW === cW && rH === cH) rebuildHelixData();
+    else {
+      if (!helixSamples) rebuildHelixCurves();
+      const [flon, flat] = previewFieldDims();
+      rebuildHelixField(flon, flat);
+    }
+  }
+
+  for (let py = 0; py < rH; py++){
+    if (gen !== renderGen) return false;
+    const lat = (1 - py / (rH - 1)) * Math.PI - Math.PI / 2;
+    const u = Math.sin(lat), absU = Math.abs(u);
+    const gamU = absU < 1e-9 ? 0 : Math.pow(absU, cg);
+    const Wv = u > 0 ? (Math.pow(u, wg) * 255 + .5 | 0) : 0;
+
+    for (let px = 0; px < rW; px++){
+      const phi = px / rW * P2;
+      let Leqv, Ceqv, ca, cb, hw = null, direct = null;
+
+      if (mode === 'helix'){
+        hw = helixHueWeights(phi, lat);
+        ca = hw.ca; cb = hw.cb;
+        const hue = Math.atan2(cb, ca);
+        const eq = sampleEqAtAngle(hue);
+        Leqv = eq.Leqv;
+        Ceqv = eq.Ceqv * hw.mix;
+      } else if (mode === 'helixrgb'){
+        direct = helixDirectRGB(phi, lat, u, gamU);
+      } else {
+        const eq = sampleEqAtAngle(phi);
+        Leqv = eq.Leqv; Ceqv = eq.Ceqv;
+        ca = Math.cos(phi); cb = Math.sin(phi);
+      }
+
+      let R, G, B;
+      if (mode === 'helixrgb'){
+        R = direct.R; G = direct.G; B = direct.B;
+      } else {
+        const L = latitudeLightness(Leqv, u);
+        const C = Ceqv * northChromaScale(u, gamU);
+        let lin = oklab2lin(L, ca * C, cb * C);
+        if (!whiteRamp && u > 0) lin = applyNorthDim(lin[0], lin[1], lin[2], u);
+        R = srgb8(lin[0]); G = srgb8(lin[1]); B = srgb8(lin[2]);
+      }
+
+      const k = (py * rW + px) * 4;
+      if (isHelixMode() && helixFillZones && ch === 'RGB'){
+        const weights = mode === 'helix'
+          ? hw.weights
+          : direct.weights;
+        const z = zoneFillRGB(phi, lat, weights);
+        const c = compositeZoneFill(R, G, B, z);
+        d[k] = c[0]; d[k + 1] = c[1]; d[k + 2] = c[2];
+      } else if (isHelixMode() && (ch === 'R' || ch === 'G' || ch === 'B')){
+        const wi = ch === 'R' ? 0 : ch === 'G' ? 1 : 2;
+        const v = helixChannelWeights(phi, lat)[wi] * 255 + .5 | 0;
+        d[k] = ch === 'R' ? v : 0; d[k + 1] = ch === 'G' ? v : 0; d[k + 2] = ch === 'B' ? v : 0;
+      } else switch (ch){
+        case 'RGB': d[k] = R; d[k + 1] = G; d[k + 2] = B; break;
+        case 'R':   d[k] = R; d[k + 1] = 0; d[k + 2] = 0; break;
+        case 'G':   d[k] = 0; d[k + 1] = G; d[k + 2] = 0; break;
+        case 'B':   d[k] = 0; d[k + 1] = 0; d[k + 2] = B; break;
+        case 'L':   {
+          const L = mode === 'helixrgb'
+            ? (R + G + B) / (3 * 255)
+            : latitudeLightness(Leqv, u);
+          const l8 = L * 255 + .5 | 0;
+          d[k] = l8; d[k + 1] = l8; d[k + 2] = l8;
+          break;
+        }
+        case 'W':   d[k] = Wv; d[k + 1] = Wv; d[k + 2] = Wv; break;
+      }
+      d[k + 3] = 255;
+    }
+  }
+
+  if (gen !== renderGen) return false;
+  offCtx.putImageData(img, 0, 0);
+  const ctx = mapC.getContext('2d');
+  ctx.imageSmoothingEnabled = rW !== cW || rH !== cH;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(offC, 0, 0, cW, cH);
+  return true;
+}
+
+/** fast=true: low-res preview now, debounced helix rebuild + one full-res pass.
+ *  fast=false: rebuild immediately (if helix) + one full-res pass.
+ *  previewOnly: quarter-res only — never schedules or computes full canvas. */
+function go(fast, opts = {}){
+  const { helixCurves = false } = opts;
+
+  if (previewOnly){
+    queuePreviewRender({ helixCurves, helixRebuildNow: !fast });
+    return;
+  }
+
+  cancelPendingRender();
+  const gen = ++renderGen;
+  const [pW, pH] = previewDims();
+
+  if (fast){
+    previewRaf = requestAnimationFrame(() => {
+      if (gen !== renderGen) return;
+      renderAt(pW, pH, gen);
+      drawOvl();
+    });
+
+    if (isHelixMode()){
+      helixTimer = setTimeout(() => {
+        if (gen !== renderGen) return;
+        if (helixCurves) rebuildHelixCurves();
+        rebuildHelixField();
+        if (gen !== renderGen) return;
+        fullTimer = setTimeout(() => {
+          if (gen !== renderGen) return;
+          if (previewOnly) return;
+          if (renderAt(cW, cH, gen)) drawWstrip();
+          drawOvl();
+        }, 60);
+      }, 160);
+    } else {
+      fullTimer = setTimeout(() => {
+        if (gen !== renderGen) return;
+        if (previewOnly) return;
+        if (renderAt(cW, cH, gen)) drawWstrip();
+        drawOvl();
+      }, 280);
+    }
+    return;
+  }
+
+  if (previewOnly){
+    queuePreviewRender({ helixCurves, helixRebuildNow: true });
+    return;
+  }
+
+  if (isHelixMode()){
+    if (helixCurves) rebuildHelixCurves();
+    rebuildHelixField();
+  }
+  if (renderAt(cW, cH, gen)) drawWstrip();
+  drawOvl();
+}
+
+// ── Overlay ───────────────────────────────────────────────────────────────────
+function drawOvl(){
+  const ctx=ovlC.getContext('2d'), W=ovlC.width, H=ovlC.height;
+  ctx.clearRect(0,0,W,H);
+
+  // Equator dashed line
+  ctx.save(); ctx.strokeStyle='rgba(255,255,255,.16)'; ctx.lineWidth=1; ctx.setLineDash([4,7]);
+  ctx.beginPath(); ctx.moveTo(0,H/2); ctx.lineTo(W,H/2); ctx.stroke();
+  ctx.setLineDash([]); ctx.restore();
+
+  if(isHelixMode()){
+    if(!helixSamples) rebuildHelixData();
+    const q=helixQ, k=helixKCurve();
+    const hcol=['rgba(255,80,80,.85)','rgba(70,230,70,.85)','rgba(80,140,255,.85)'];
+    for(let i=0;i<3;i++){
+      ctx.strokeStyle=hcol[i]; ctx.lineWidth=2;
+      ctx.beginPath(); let prevX=-1, prevY=-1;
+      for(const s of helixSamples[i]){
+        const lonW=((s.lon%P2)+P2)%P2;
+        const x=lonW/P2*W;
+        const y=(1-(s.lat+Math.PI/2)/Math.PI)*H;
+        if(prevX<0){ ctx.moveTo(x,y); }
+        else if(Math.abs(x-prevX)>W*.45 || Math.abs(y-prevY)>H*.45){
+          ctx.stroke(); ctx.beginPath(); ctx.moveTo(x,y);
+        } else { ctx.lineTo(x,y); }
+        prevX=x; prevY=y;
+      }
+      ctx.stroke();
+    }
+    const ls=Math.max(10,W/150|0);
+    ctx.font=`bold ${ls}px monospace`;
+    const lcol=['rgba(255,80,80,.6)','rgba(70,230,70,.6)','rgba(80,140,255,.6)'];
+    for(let i=0;i<3;i++){ctx.fillStyle=lcol[i];ctx.fillText('RGB'[i],4+i*(ls+5),ls*2+6);}
+    ctx.font=`${Math.max(10,W/160|0)}px monospace`;
+    ctx.fillStyle='rgba(255,255,255,.13)';
+    ctx.fillText(`k=${k.toFixed(2)}  q=${q.toFixed(2)}  blend=${helixAmp.toFixed(1)}  tail=${helixTail.toFixed(2)}  ctr=${helixLatOffsetDeg|0}°  min=${helixLatMinShiftDeg|0}°  max=${helixLatMaxShiftDeg|0}°`,4,H-5);
+  } else {
+    const HUES=[['R','#ff5f5f',0],['Y','#ffdd44',60],['G','#55ff6a',120],
+                ['C','#44ffff',180],['B','#5599ff',240],['M','#ff55ff',300]];
+    const fs=Math.max(11,W/85|0);
+    ctx.font=`bold ${fs}px monospace`;
+    for(const[lbl,col,deg] of HUES){
+      const x=deg/360*W;
+      ctx.save(); ctx.strokeStyle='rgba(255,255,255,.07)'; ctx.lineWidth=1; ctx.setLineDash([2,8]);
+      ctx.beginPath(); ctx.moveTo(x,fs+6); ctx.lineTo(x,H); ctx.stroke();
+      ctx.setLineDash([]); ctx.restore();
+      ctx.fillStyle=col; ctx.fillText(lbl,x+3,fs+2);
+    }
+  }
+
+  const ls=Math.max(10,W/130|0);
+  ctx.font=`${ls}px monospace`; ctx.fillStyle='rgba(255,255,255,.16)';
+  ctx.fillText('▲ N',4,ls+2);
+  ctx.fillText('equator',4,H/2-3);
+  ctx.fillText('▼ S',4,H-4);
+
+  if(hov){
+    ctx.save(); ctx.strokeStyle='rgba(255,255,255,.45)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(hov.x,0); ctx.lineTo(hov.x,H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,hov.y); ctx.lineTo(W,hov.y); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ── W strip ───────────────────────────────────────────────────────────────────
+function drawWstrip(){
+  const cv=document.getElementById('wst'), W=cv.width, H=cv.height;
+  const ctx=cv.getContext('2d'), img=ctx.createImageData(W,H), d=img.data;
+  for(let px=0;px<W;px++){
+    const v=Math.pow(px/(W-1),wg)*255+.5|0;
+    for(let py=0;py<H;py++){const i=(py*W+px)*4; d[i]=v; d[i+1]=v; d[i+2]=v; d[i+3]=255;}
+  }
+  ctx.putImageData(img,0,0);
+  document.getElementById('wgL').textContent=`γ ${wg.toFixed(1)}`;
+}
+
+// ── Hover colour inspector ────────────────────────────────────────────────────
+function pointColor(ex,ey){
+  const r=mapC.getBoundingClientRect();
+  const px=Math.min(cW-1,Math.max(0,(ex-r.left)/r.width*(cW-1)+.5|0));
+  const py=Math.min(cH-1,Math.max(0,(ey-r.top)/r.height*(cH-1)+.5|0));
+  const phi=px/cW*P2;
+  const lat=(1-py/(cH-1))*Math.PI-Math.PI/2;
+  const u=Math.sin(lat), absU=Math.abs(u);
+  const gamU=absU<1e-9?0:Math.pow(absU,cg);
+  let Leqv,Ceqv,ca,cb;
+
+  if(mode==='helix'){
+    const hw=helixHueWeights(phi, lat);
+    ca=hw.ca; cb=hw.cb;
+    const hue=Math.atan2(cb, ca);
+    const eq=sampleEqAtAngle(hue);
+    Leqv=eq.Leqv; Ceqv=eq.Ceqv*hw.mix;
+  } else if(mode==='helixrgb'){
+    const d=helixDirectRGB(phi, lat, u, gamU);
+    return{
+      R:d.R,G:d.G,B:d.B,
+      W:u>0?Math.round(255*Math.pow(u,wg)):0,
+      L:(d.R+d.G+d.B)/(3*255), C:0,
+      lat:lat*180/Math.PI, lon:phi*180/Math.PI, px,py
+    };
+  } else {
+    const eq=sampleEqAtAngle(phi);
+    Leqv=eq.Leqv; Ceqv=eq.Ceqv;
+    ca=Math.cos(phi); cb=Math.sin(phi);
+  }
+
+  const L=latitudeLightness(Leqv, u);
+  const C=Ceqv*northChromaScale(u, gamU);
+  let lin=oklab2lin(L,ca*C,cb*C);
+  if (!whiteRamp && u > 0) lin = applyNorthDim(lin[0], lin[1], lin[2], u);
+  return{
+    R:srgb8(lin[0]),G:srgb8(lin[1]),B:srgb8(lin[2]),
+    W:u>0?Math.round(255*Math.pow(u,wg)):0,
+    L,C, lat:lat*180/Math.PI, lon:phi*180/Math.PI, px,py
+  };
+}
+
+mapC.addEventListener('mousemove',e=>{
+  const c=pointColor(e.clientX,e.clientY);
+  hov={x:c.px,y:c.py};
+  const la=(c.lat>=0?'+':'')+c.lat.toFixed(0)+'°';
+  document.getElementById('inf').innerHTML=
+    `<span class="sw" style="background:rgb(${c.R},${c.G},${c.B})"></span>`+
+    `lon <b>${c.lon.toFixed(0)}°</b> &nbsp; lat <b>${la}</b> &nbsp;&nbsp;`+
+    `R:<b>${c.R}</b>&nbsp;G:<b>${c.G}</b>&nbsp;B:<b>${c.B}</b>&nbsp;W:<b>${c.W}</b>`+
+    `&nbsp;&nbsp;<span style="color:#374151">L:${c.L.toFixed(3)}&nbsp;C:${c.C.toFixed(3)}</span>`;
+  if(!hoverOvlPending){
+    hoverOvlPending=true;
+    requestAnimationFrame(()=>{ hoverOvlPending=false; drawOvl(); });
+  }
+});
+mapC.addEventListener('mouseleave',()=>{hov=null;drawOvl();});
+let hoverOvlPending=false;
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
+function snap(v, step){ return step > 0 ? Math.round(v / step) * step : v; }
+
+function syncNumDisplays(){
+  document.getElementById('satV').value  = sat.toFixed(2);
+  document.getElementById('flatV').value = flat.toFixed(2);
+  document.getElementById('cgV').value   = cg.toFixed(2);
+  document.getElementById('wgV').value   = wg.toFixed(1);
+  document.getElementById('hkV').value   = helixKCurve().toFixed(2);
+  document.getElementById('hqV').value   = helixQ.toFixed(2);
+  document.getElementById('haV').value   = helixAmp.toFixed(1);
+  document.getElementById('htV').value   = helixTail.toFixed(2);
+  document.getElementById('hVOV').value  = String(helixLatOffsetDeg|0);
+  document.getElementById('hVMNV').value = String(helixLatMinShiftDeg|0);
+  document.getElementById('hVMXV').value = String(helixLatMaxShiftDeg|0);
+  ['R','G','B'].forEach((c,i)=>{
+    document.getElementById('h'+c+'HV').value = helixBlurH[i].toFixed(1);
+    document.getElementById('h'+c+'VV').value = helixBlurV[i].toFixed(1);
+    document.getElementById('h'+c+'OV').value = String(helixOffsetDeg[i]|0);
+  });
+}
+
+function readParamsFromSliders(){
+  const prevK=helixK, prevQ=helixQ;
+  const prevOff=helixOffsetDeg.join(','), prevVOff=helixLatOffsetDeg;
+  const prevVMin=helixLatMinShiftDeg, prevVMax=helixLatMaxShiftDeg;
+  sat    = +document.getElementById('sat').value;
+  flat   = +document.getElementById('flat').value;
+  cg     = +document.getElementById('cg').value;
+  wg     = +document.getElementById('wg').value;
+  helixK = +document.getElementById('hk').value;
+  helixQ = +document.getElementById('hq').value;
+  helixAmp = +document.getElementById('ha').value;
+  helixTail = +document.getElementById('ht').value;
+  helixBlurH = [+document.getElementById('hRH').value, +document.getElementById('hGH').value, +document.getElementById('hBH').value];
+  helixBlurV = [+document.getElementById('hRV').value, +document.getElementById('hGV').value, +document.getElementById('hBV').value];
+  helixOffsetDeg = [+document.getElementById('hRO').value|0, +document.getElementById('hGO').value|0, +document.getElementById('hBO').value|0];
+  helixLatOffsetDeg = +document.getElementById('hVO').value|0;
+  helixLatMinShiftDeg = +document.getElementById('hVMN').value|0;
+  helixLatMaxShiftDeg = +document.getElementById('hVMX').value|0;
+  syncNumDisplays();
+  return {
+    curves: prevK!==helixK || prevQ!==helixQ || prevOff!==helixOffsetDeg.join(',') ||
+      prevVOff!==helixLatOffsetDeg || prevVMin!==helixLatMinShiftDeg || prevVMax!==helixLatMaxShiftDeg
+  };
+}
+
+function collectSettings(){
+  readParamsFromSliders();
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    mode,
+    channel: ch,
+    saturation: sat,
+    flattenL: flat,
+    chromaGamma: cg,
+    wGamma: wg,
+    whiteRamp,
+    helix: isHelixMode() ? {
+      k: +helixKCurve().toFixed(4),
+      kSlider: helixK,
+      q: helixQ,
+      globalBlur: helixAmp,
+      softTail: helixTail,
+      blurHorizontal: { R: helixBlurH[0], G: helixBlurH[1], B: helixBlurH[2] },
+      blurVertical:   { R: helixBlurV[0], G: helixBlurV[1], B: helixBlurV[2] },
+      startOffsetDeg: { R: helixOffsetDeg[0], G: helixOffsetDeg[1], B: helixOffsetDeg[2] },
+      verticalOffsetDeg: helixLatOffsetDeg,
+      minShiftDeg: helixLatMinShiftDeg,
+      maxShiftDeg: helixLatMaxShiftDeg,
+      zoneFill: helixFillZones
+    } : null,
+    previewOnly
+  };
+}
+
+async function exportSettings(){
+  const json = JSON.stringify(collectSettings(), null, 2);
+  const btn = document.getElementById('exportBtn');
+  try{
+    await navigator.clipboard.writeText(json);
+    btn.textContent = 'Copied!';
+    setTimeout(()=>{ btn.textContent = 'Export settings'; }, 1800);
+  }catch{
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'miri-colormap-settings.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    btn.textContent = 'Downloaded';
+    setTimeout(()=>{ btn.textContent = 'Export settings'; }, 1800);
+  }
+}
+
+function setSliderValue(id, value, opts = {}){
+  if (!isFinite(value)) return;
+  const s = document.getElementById(id);
+  if (!s) return;
+  if (opts.flexMax) expandSliderMax(s, value);
+  const step = +s.step || 0.01;
+  s.value = snap(clamp(value, +s.min, +s.max), step);
+}
+
+function applySettings(cfg){
+  if (!cfg || typeof cfg !== 'object') throw new Error('invalid settings object');
+
+  setSliderValue('sat', cfg.saturation);
+  setSliderValue('flat', cfg.flattenL);
+  setSliderValue('cg', cfg.chromaGamma);
+  setSliderValue('wg', cfg.wGamma, { flexMax: true });
+
+  if (cfg.helix && typeof cfg.helix === 'object'){
+    const hs = cfg.helix;
+    const kSlider = isFinite(hs.kSlider)
+      ? hs.kSlider
+      : (isFinite(hs.k) ? clamp((hs.k - 0.05) / 0.9 * 10, 1, 9) : NaN);
+    setSliderValue('hk', kSlider);
+    setSliderValue('hq', hs.q);
+    setSliderValue('ha', hs.globalBlur);
+    setSliderValue('ht', hs.softTail);
+    if (hs.blurHorizontal){
+      setSliderValue('hRH', hs.blurHorizontal.R);
+      setSliderValue('hGH', hs.blurHorizontal.G);
+      setSliderValue('hBH', hs.blurHorizontal.B);
+    }
+    if (hs.blurVertical){
+      setSliderValue('hRV', hs.blurVertical.R);
+      setSliderValue('hGV', hs.blurVertical.G);
+      setSliderValue('hBV', hs.blurVertical.B);
+    }
+    if (hs.startOffsetDeg){
+      setSliderValue('hRO', hs.startOffsetDeg.R);
+      setSliderValue('hGO', hs.startOffsetDeg.G);
+      setSliderValue('hBO', hs.startOffsetDeg.B);
+    }
+    setSliderValue('hVO', hs.verticalOffsetDeg);
+    setSliderValue('hVMN', hs.minShiftDeg);
+    setSliderValue('hVMX', hs.maxShiftDeg);
+    if (typeof hs.zoneFill === 'boolean') helixFillZones = hs.zoneFill;
+  }
+
+  if (typeof cfg.whiteRamp === 'boolean') whiteRamp = cfg.whiteRamp;
+  if (typeof cfg.previewOnly === 'boolean') previewOnly = cfg.previewOnly;
+  if (['oklab','helix','helixrgb'].includes(cfg.mode)) mode = cfg.mode;
+  if (['RGB','R','G','B','L','W'].includes(cfg.channel)) ch = cfg.channel;
+
+  readParamsFromSliders();
+  updateEq();
+  updateHelixUi();
+  updateWhiteRampUi();
+
+  document.getElementById('bPreview').className = previewOnly ? 'on' : '';
+  document.getElementById('mOK').className='mbtn'+(mode==='oklab'?' on':'');
+  document.getElementById('mHX').className='mbtn'+(mode==='helix'?' on':'');
+  document.getElementById('mHR').className='mbtn'+(mode==='helixrgb'?' on':'');
+  document.getElementById('cOK').style.display=mode==='oklab'?'':'none';
+  document.getElementById('chlLabel').textContent=ch;
+  ['RGB','R','G','B','L','W'].forEach(x=>{
+    const b=document.getElementById('b'+x);
+    if(b) b.className=x===ch?'on':'';
+  });
+
+  if (previewOnly){
+    cancelFullResPending();
+    queuePreviewRender({ helixCurves: isHelixMode(), helixRebuildNow: true });
+  } else {
+    go(false, { helixCurves: isHelixMode() });
+  }
+}
+
+async function importSettings(){
+  const btn = document.getElementById('importBtn');
+  let seed = '';
+  try{ seed = (await navigator.clipboard.readText()).trim(); }catch{}
+  const raw = prompt('Paste settings JSON (empty uses clipboard):', '');
+  if (raw === null) return;
+  const text = raw.trim() || seed;
+  if (!text){
+    btn.textContent = 'No JSON';
+    setTimeout(()=>{ btn.textContent = 'Import settings'; }, 1500);
+    return;
+  }
+  try{
+    applySettings(JSON.parse(text));
+    btn.textContent = 'Imported';
+    setTimeout(()=>{ btn.textContent = 'Import settings'; }, 1600);
+  }catch{
+    btn.textContent = 'Import failed';
+    setTimeout(()=>{ btn.textContent = 'Import settings'; }, 1700);
+  }
+}
+
+function applyChange(fast){
+  updateEq();
+  go(fast);
+}
+
+function onHelixParamChange(fast){
+  const chg = readParamsFromSliders();
+  updateEq();
+  if (!isHelixMode()){ go(fast); return; }
+  go(fast, { helixCurves: chg.curves });
+}
+
+function expandSliderMax(slider, rawVal){
+  const floor = +(slider.dataset.maxDefault || slider.max);
+  const need = Math.max(floor, rawVal);
+  if (+slider.max < need) slider.max = Math.ceil(need);
+}
+
+function wireSliderPair(sliderId, numId, opts){
+  const slider = document.getElementById(sliderId);
+  const num = document.getElementById(numId);
+  const { toDisplay, fromDisplay, dec, onChange, flexMax } = opts;
+  const fire = onChange || onHelixParamChange;
+
+  function show(){
+    num.value = toDisplay ? toDisplay(+slider.value) : (+slider.value).toFixed(dec ?? 2);
+  }
+
+  function fromNum(){
+    let raw = parseFloat(String(num.value).trim());
+    if(!isFinite(raw)){ show(); return; }
+    if (flexMax) expandSliderMax(slider, raw);
+    let sv = fromDisplay ? fromDisplay(raw) : raw;
+    const step = +slider.step || 0.01;
+    sv = snap(clamp(sv, +slider.min, +slider.max), step);
+    slider.value = sv;
+    show();
+    readParamsFromSliders();
+    (onChange || applyChange)(previewOnly ? true : false);
+  }
+
+  slider.addEventListener('input', ()=>{ show(); readParamsFromSliders(); fire(true); });
+  slider.addEventListener('change', ()=>{ show(); readParamsFromSliders(); fire(previewOnly ? true : false); });
+  num.addEventListener('change', fromNum);
+  num.addEventListener('keydown', e=>{
+    if(e.key === 'Enter'){ e.preventDefault(); fromNum(); num.blur(); }
+    if(e.key === 'Escape'){ show(); num.blur(); }
+    e.stopPropagation();
+  });
+  num.addEventListener('keyup', e=> e.stopPropagation());
+  show();
+}
+
+wireSliderPair('sat', 'satV', { dec: 2, onChange: applyChange });
+wireSliderPair('flat', 'flatV', { dec: 2, onChange: applyChange });
+wireSliderPair('cg', 'cgV', { dec: 2, onChange: applyChange });
+wireSliderPair('wg', 'wgV', { dec: 1, onChange: applyChange, flexMax: true });
+wireSliderPair('hk', 'hkV', {
+  dec: 2,
+  toDisplay: sv => (0.05 + 0.9 * (sv / 10)).toFixed(2),
+  fromDisplay: k => clamp((k - 0.05) / 0.9 * 10, 1, 9)
+});
+wireSliderPair('hq', 'hqV', { dec: 2 });
+wireSliderPair('ha', 'haV', { dec: 1 });
+wireSliderPair('ht', 'htV', { dec: 2 });
+['R','G','B'].forEach(c=>{
+  wireSliderPair('h'+c+'H', 'h'+c+'HV', { dec: 1 });
+  wireSliderPair('h'+c+'V', 'h'+c+'VV', { dec: 1 });
+  wireSliderPair('h'+c+'O', 'h'+c+'OV', { dec: 0 });
+});
+wireSliderPair('hVO', 'hVOV', { dec: 0 });
+wireSliderPair('hVMN', 'hVMNV', { dec: 0 });
+wireSliderPair('hVMX', 'hVMXV', { dec: 0 });
+
+document.getElementById('exportBtn').addEventListener('click', exportSettings);
+document.getElementById('importBtn').addEventListener('click', importSettings);
+
+function updateHelixUi(){
+  const hx = isHelixMode();
+  document.getElementById('cHX').style.display = hx ? '' : 'none';
+  document.getElementById('cHXblur').style.display = hx ? '' : 'none';
+  document.getElementById('cHXphase').style.display = hx ? '' : 'none';
+  document.getElementById('bFill').style.display = hx ? '' : 'none';
+  document.getElementById('fillCap').style.display = hx ? '' : 'none';
+  document.getElementById('bFill').className = helixFillZones ? 'on' : '';
+}
+
+function setPreviewOnly(on){
+  previewOnly = on;
+  document.getElementById('bPreview').className = on ? 'on' : '';
+  if (on){
+    cancelFullResPending();
+    queuePreviewRender({ helixRebuildNow: true });
+  } else {
+    cancelPreviewPending();
+    go(false);
+  }
+}
+
+function updateWhiteRampUi(){
+  const btn = document.getElementById('bWhite');
+  btn.textContent = whiteRamp ? 'RGB + W' : 'Hold hue N';
+  btn.className = whiteRamp ? 'on' : '';
+}
+
+function setWhiteRamp(on){
+  whiteRamp = on;
+  updateWhiteRampUi();
+  go(false);
+}
+
+function setFillZones(on){
+  helixFillZones = on;
+  document.getElementById('bFill').className = on ? 'on' : '';
+  go(false);
+}
+
+function setMode(m){
+  mode=m;
+  document.getElementById('mOK').className='mbtn'+(m==='oklab'?' on':'');
+  document.getElementById('mHX').className='mbtn'+(m==='helix'?' on':'');
+  document.getElementById('mHR').className='mbtn'+(m==='helixrgb'?' on':'');
+  document.getElementById('cOK').style.display=m==='oklab'?'':'none';
+  updateHelixUi();
+  if (isHelixMode()) go(false, { helixCurves: true });
+  else go(false);
+}
+
+function setCh(c){
+  ch=c;
+  document.getElementById('chlLabel').textContent=c;
+  ['RGB','R','G','B','L','W'].forEach(x=>{
+    const b=document.getElementById('b'+x);
+    if(b) b.className=x===c?'on':'';
+  });
+  go(false);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+window.addEventListener('load',()=>{
+  sizeCanvases();
+  document.getElementById('inf').innerHTML='<span style="color:#374151">building OKLab cusp table…</span>';
+  document.getElementById('bRGB').className='on';
+  updateWhiteRampUi();
+  setTimeout(()=>{
+    buildCusp(Math.min(720,cW));
+    readParamsFromSliders();
+    updateEq();
+    updateHelixUi();
+    if(isHelixMode()) rebuildHelixData();
+    go(false);
+    document.getElementById('inf').innerHTML='<span>hover to inspect · Export settings copies JSON · type exact values in number boxes</span>';
+  },20);
+});
+window.addEventListener('resize',()=>{ sizeCanvases(); if(Lc) go(true); });
+</script>
+</body>
+</html>

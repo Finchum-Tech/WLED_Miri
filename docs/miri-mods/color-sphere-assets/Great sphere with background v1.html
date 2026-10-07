@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#0b0d10" />
+  <title>Sphere v1</title>
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --panel: rgba(14, 17, 21, 0.72);
+      --line: rgba(255, 255, 255, 0.10);
+      --txt: #e7e9ee;
+      --dim: #8b919c;
+      --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #060708;
+      color: var(--txt);
+      font-family: var(--sans);
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+      touch-action: none;
+    }
+
+    #stage { position: fixed; inset: 0; display: block; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* center reticle — the swatch IS the picked color */
+    #reticle {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      width: 64px;
+      height: 64px;
+      margin: -32px 0 0 -32px;
+      border-radius: 50%;
+      pointer-events: none;
+      border: 2px solid rgba(0, 0, 0, 0.55);
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.85),
+        0 0 0 5px rgba(0, 0, 0, 0.35),
+        0 2px 12px rgba(0, 0, 0, 0.45);
+      background: #808080;
+      transition: background-color 20ms linear;
+    }
+    #reticle::after {
+      content: "";
+      position: absolute;
+      inset: 22px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      mix-blend-mode: difference;
+    }
+
+    /* bottom readout */
+    #hud {
+      position: fixed;
+      left: 50%;
+      bottom: max(14px, env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 14px;
+      background: var(--panel);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      font-family: var(--mono);
+      font-size: 13px;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+    .chan { display: flex; align-items: baseline; gap: 5px; }
+    .chan b { color: var(--dim); font-weight: 600; font-size: 11px; }
+    .chan span { min-width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+    .R b { color: #ff6b6b; } .G b { color: #51cf66; } .B b { color: #5c9dff; } .W b { color: #d7dbe2; }
+
+    #mode {
+      appearance: none;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      color: var(--txt);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 7px 11px;
+      margin-right: 2px;
+      cursor: pointer;
+      min-height: 32px;
+      white-space: nowrap;
+    }
+    #mode::before {
+      content: "white ";
+      color: var(--dim);
+    }
+    #mode:active { background: rgba(255, 255, 255, 0.12); }
+
+    #dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #4b515c;
+      box-shadow: 0 0 0 0 rgba(81, 207, 102, 0.0);
+    }
+    #dot.live { background: #51cf66; box-shadow: 0 0 8px rgba(81, 207, 102, 0.7); }
+    #dot.off  { background: #e0564b; }
+
+    /* hint, fades after first interaction */
+    #hint {
+      position: fixed;
+      left: 50%;
+      top: max(16px, env(safe-area-inset-top));
+      transform: translateX(-50%);
+      color: var(--dim);
+      font-size: 12px;
+      font-family: var(--sans);
+      letter-spacing: 0.02em;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 7px 12px;
+      border-radius: 999px;
+      transition: opacity 500ms ease;
+      pointer-events: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #reticle { transition: none; }
+    }
+
+    #gear {
+      appearance: none; font-family: var(--mono); font-size: 15px; line-height: 1;
+      color: var(--txt); background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--line); border-radius: 9px;
+      width: 34px; min-height: 32px; cursor: pointer;
+    }
+    #gear:active { background: rgba(255, 255, 255, 0.12); }
+
+    #panel {
+      position: fixed;
+      top: max(14px, env(safe-area-inset-top));
+      right: 12px;
+      width: 246px;
+      max-height: 78vh;
+      overflow-y: auto;
+      background: var(--panel);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-family: var(--mono);
+      font-size: 12px;
+      display: none;
+      z-index: 10;
+      touch-action: auto;
+    }
+    #panel.open { display: block; }
+    #panel h4 {
+      margin: 13px 0 5px; font-size: 10px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--dim); font-weight: 600;
+    }
+    #panel h4:first-child { margin-top: 0; }
+    .row { display: grid; grid-template-columns: 40px 1fr 32px; align-items: center; gap: 8px; margin: 6px 0; }
+    .row label { color: var(--dim); }
+    .row input[type=range] { width: 100%; accent-color: #5c9dff; touch-action: auto; }
+    .row .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--txt); }
+    .row.copy { grid-template-columns: 1fr; margin-top: 12px; }
+    #copyBtn {
+      font-family: var(--mono); font-size: 11px; color: var(--txt);
+      background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line);
+      border-radius: 9px; padding: 8px; cursor: pointer; width: 100%;
+    }
+    #copyBtn:active { background: rgba(255, 255, 255, 0.12); }
+  </style>
+</head>
+
+<body>
+  <canvas id="stage"></canvas>
+  <div id="reticle"></div>
+  <div id="hint">Drag to aim &middot; top = white &middot; bottom = off &middot; equator = color</div>
+  <div id="hud">
+    <button id="gear" type="button" title="Tune the color look">&#9881;</button>
+    <button id="mode" type="button" title="How white is built from the channels">RGB + W</button>
+    <div id="dot" title="WLED link"></div>
+    <div class="chan R"><b>R</b><span id="vR">0</span></div>
+    <div class="chan G"><b>G</b><span id="vG">0</span></div>
+    <div class="chan B"><b>B</b><span id="vB">0</span></div>
+    <div class="chan W"><b>W</b><span id="vW">0</span></div>
+  </div>
+  <div id="panel"></div>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.124/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.124/examples/jsm/controls/OrbitControls.js';
+
+    // ---------- config ----------
+    const SPHERE_R = 60;      // sphere radius (scene units)
+    const SEND_MS = 90;       // min interval between WLED updates while dragging
+    const HUE_SPAN = 360;     // degrees per hue — full circle
+
+    let CAM_R = 150;          // dynamic orbit radius (recomputed on resize)
+
+    // ---------- scene ----------
+    const canvas = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x000000, 0);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2000);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableZoom = false;
+    controls.enablePan = false;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.25;
+    controls.rotateSpeed = 0.55;
+
+    // ---------- the color field, drawn directly by a shader ----------
+    const vert = /* glsl */`
+      varying vec3 vDir;
+      void main() {
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`;
+
+    const frag = /* glsl */`
+      precision highp float;
+      varying vec3 vDir;
+      const float PI = 3.14159265358979;
+
+      vec3 oklab2lin(float L, float a, float b) {
+        float l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+        float m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+        float s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+        float l = l_ * l_ * l_;
+        float m = m_ * m_ * m_;
+        float s = s_ * s_ * s_;
+        return vec3(
+           4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+          -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+          -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+        );
+      }
+
+      float lin2srgb1(float x) {
+        x = clamp(x, 0.0, 1.0);
+        return x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1.0 / 2.4) - 0.055;
+      }
+
+      uniform sampler2D uHueLUT;
+      uniform sampler2D uLatLUT;
+      uniform float uDither;
+      uniform float uNorthFade;
+
+      bool inGamut(vec3 c) {
+        return c.r >= 0.0 && c.g >= 0.0 && c.b >= 0.0 &&
+               c.r <= 1.0 && c.g <= 1.0 && c.b <= 1.0;
+      }
+
+      float maxChroma(float L, float ca, float cb) {
+        float lo = 0.0, hi = 0.45;
+        for (int i = 0; i < 20; i++) {
+          float mid = 0.5 * (lo + hi);
+          if (inGamut(oklab2lin(L, ca*mid, cb*mid))) lo = mid; else hi = mid;
+        }
+        return lo;
+      }
+
+      vec3 gamutSphere(vec3 d) {
+        float t = d.y;
+        // phi = geometric longitude [0,1) → full 360°; indexes arc-length LUT
+        float phi = fract(atan(d.z, d.x) / (2.0 * PI) + 0.5);
+        float x = phi * 256.0;
+        float i0 = floor(x), f = x - i0;
+        vec4 a0 = texture2D(uHueLUT, vec2((mod(i0,       256.0) + 0.5) / 256.0, 0.5));
+        vec4 a1 = texture2D(uHueLUT, vec2((mod(i0 + 1.0, 256.0) + 0.5) / 256.0, 0.5));
+        // rg = 16-bit hue fraction u ∈ [0,1); bytes stored 0–255, samples are /255
+        float u0 = (a0.r * 65280.0 + a0.g * 255.0) / 65535.0;
+        float u1 = (a1.r * 65280.0 + a1.g * 255.0) / 65535.0;
+        float du = u1 - u0;
+        if (du >  0.5) du -= 1.0;
+        if (du < -0.5) du += 1.0;
+        float u = u0 + du * f;
+        float h0 = u * 2.0 * PI;
+        vec2 dir = vec2(cos(h0), sin(h0));
+        float Leq = mix(a0.b, a1.b, f);
+        float capC = mix(a0.a, a1.a, f) * 0.4;
+        float p = asin(clamp(t, -1.0, 1.0)) / PI + 0.5;
+        float lx = p * 127.0, li = floor(lx), lf = lx - li;
+        float g0 = texture2D(uLatLUT, vec2((li + 0.5) / 128.0, 0.5)).r;
+        float g1 = texture2D(uLatLUT, vec2((min(li + 1.0, 127.0) + 0.5) / 128.0, 0.5)).r;
+        float g = mix(g0, g1, lf);
+        float L = (t >= 0.0) ? Leq + (1.0 - Leq) * g : Leq * (1.0 - g);
+        float C = min(maxChroma(L, dir.x, dir.y), capC);
+        if (t >= 0.0) C *= pow(1.0 - g, uNorthFade);
+        vec3 lin = oklab2lin(L, dir.x * C, dir.y * C);
+        return vec3(lin2srgb1(lin.r), lin2srgb1(lin.g), lin2srgb1(lin.b));
+      }
+
+      float hash12(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+      }
+
+      void main() {
+        vec3 d = normalize(vDir);
+        vec3 col = gamutSphere(d);
+        float tpdf = hash12(gl_FragCoord.xy) - hash12(gl_FragCoord.xy + 17.0);
+        col += tpdf * exp2(uDither) / 255.0;
+        gl_FragColor = vec4(col, 1.0);
+      }`;
+
+    const sphereMat = new THREE.ShaderMaterial({
+      uniforms: { uHueLUT: { value: null }, uLatLUT: { value: null }, uDither: { value: 1.0 }, uNorthFade: { value: 1.5 } },
+      vertexShader: vert,
+      fragmentShader: frag
+    });
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(SPHERE_R, 96, 64),
+      sphereMat
+    );
+    scene.add(sphere);
+
+    // World-space horizon: large inverted sphere, gradient keyed to height.
+    // Moves with the scene as the camera orbits.
+    const sky = new THREE.Mesh(
+      new THREE.SphereGeometry(1000, 24, 16),
+      new THREE.ShaderMaterial({
+        vertexShader: `varying float vY; void main() { vY = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `varying float vY;
+          void main() {
+            vec3 sky = vec3(0.137, 0.157, 0.196);
+            vec3 grd = vec3(0.047, 0.055, 0.071);
+            float h = smoothstep(-0.02, 0.02, vY);   // sharp-ish horizon at y=0
+            gl_FragColor = vec4(mix(grd, sky, h), 1.0);
+          }`,
+        side: THREE.BackSide,
+        depthWrite: false
+      })
+    );
+    scene.add(sky);
+
+    const BAND_LAT = 7 * Math.PI / 180;
+    const bandMat = new THREE.MeshBasicMaterial({
+      color: 0xc6ccd6, transparent: true, opacity: 0.5, depthWrite: false
+    });
+    [BAND_LAT, -BAND_LAT].forEach(lat => {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(SPHERE_R * Math.cos(lat) * 1.004, 0.7, 8, 180),
+        bandMat
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = SPHERE_R * Math.sin(lat) * 1.004;
+      scene.add(ring);
+    });
+
+    // ---------- matching JS color math (must mirror the shader) ----------
+    function oklab2lin(L, a, b) {
+      const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+      const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+      return [
+         4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+      ];
+    }
+    function lin2srgb1(x) {
+      x = Math.min(Math.max(x, 0), 1);
+      return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+    }
+    function inGamut(c) {
+      return c[0] >= 0 && c[1] >= 0 && c[2] >= 0 && c[0] <= 1 && c[1] <= 1 && c[2] <= 1;
+    }
+    function maxChroma(L, ca, cb) {
+      let lo = 0, hi = 0.45;
+      for (let i = 0; i < 20; i++) {
+        const mid = 0.5 * (lo + hi);
+        if (inGamut(oklab2lin(L, ca*mid, cb*mid))) lo = mid; else hi = mid;
+      }
+      return lo;
+    }
+    function cuspL(h) {
+      const a = Math.cos(h), b = Math.sin(h), gr = 0.6180339887;
+      let lo = 0, hi = 1, c = hi - gr*(hi-lo), d = lo + gr*(hi-lo);
+      let fc = maxChroma(c, a, b), fd = maxChroma(d, a, b);
+      for (let i = 0; i < 40; i++) {
+        if (fc > fd) { hi = d; d = c; fd = fc; c = hi - gr*(hi-lo); fc = maxChroma(c, a, b); }
+        else { lo = c; c = d; fc = fd; d = lo + gr*(hi-lo); fd = maxChroma(d, a, b); }
+      }
+      return 0.5 * (lo + hi);
+    }
+    function oklch2rgb(L, h, C) {
+      const ca = Math.cos(h), cb = Math.sin(h);
+      const lin = oklab2lin(L, ca * C, cb * C);
+      return [lin2srgb1(lin[0]), lin2srgb1(lin[1]), lin2srgb1(lin[2])];
+    }
+
+    // ---------- color look params (live, adjustable via the gear panel) ----------
+    const P = {
+      flatten: 0.25,
+      round: 10,
+      cuspSig: 12,
+      northK: 3,
+      northFade: 1.5,
+      dither: 1.0,
+      sat: 1.0,
+      hueCompress: 1.0,     // 1.0 = normal spacing, <1.0 = anchors closer together
+      satA: [1, 1, 1, 1, 1, 1],
+      briA: [0, 0, 0, 0, 0, 0]
+    };
+    
+    const M = 720;
+    const gauss = (arr, sigDeg) => {
+      const sig = Math.max(1e-3, sigDeg / 360 * arr.length), rad = Math.ceil(sig * 3), o = new Array(arr.length);
+      for (let i = 0; i < arr.length; i++) {
+        let sw = 0, sv = 0;
+        for (let k = -rad; k <= rad; k++) { const w = Math.exp(-0.5 * (k/sig)**2), j = ((i+k)%arr.length+arr.length)%arr.length; sw += w; sv += w*arr[j]; }
+        o[i] = sv / sw;
+      }
+      return o;
+    };
+    
+    const LcCache = new Array(M);
+    for (let i = 0; i < M; i++) LcCache[i] = cuspL(i / M * 2 * Math.PI);
+    
+    const ANCHOR_HUE = [[255,0,0],[255,255,0],[0,255,0],[0,255,255],[0,0,255],[255,0,255]].map(([r,g,b]) => {
+      const f = x => { x/=255; return x<=0.04045 ? x/12.92 : Math.pow((x+0.055)/1.055, 2.4); };
+      const R=f(r), G=f(g), B=f(b);
+      const l=Math.cbrt(0.4122214708*R+0.5363325363*G+0.0514459929*B), m=Math.cbrt(0.2119034982*R+0.6806995451*G+0.1073969566*B), s=Math.cbrt(0.0883024619*R+0.2817188376*G+0.6299787005*B);
+      const hh = Math.atan2(0.0259040371*l+0.7827717662*m-0.8086757660*s, 1.9779984951*l-2.4285922050*m+0.4505937099*s);
+      return hh < 0 ? hh + 2*Math.PI : hh;
+    });
+    
+    function anchorInterp(arr, h) {
+      h = ((h % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+      // Remap h by compressing anchor spacing
+      h = h * P.hueCompress;
+      h = ((h % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+      const n = ANCHOR_HUE.length;
+      for (let i = 0; i < n; i++) {
+        const a0 = ANCHOR_HUE[i] * P.hueCompress; let span = (ANCHOR_HUE[(i+1)%n] - ANCHOR_HUE[i]) * P.hueCompress; if (span <= 0) span += 2*Math.PI;
+        let dd = h - a0; if (dd < 0) dd += 2*Math.PI;
+        if (dd <= span) { const f = dd/span; return arr[i] + (arr[(i+1)%n] - arr[i]) * f; }
+      }
+      return arr[0];
+    }
+    const satScale = h => anchorInterp(P.satA, h) * P.sat;
+    const briShift = h => anchorInterp(P.briA, h);
+
+    // ---------- hue LUT: OKLab equator arc-length remap (shared with lat LUT) ----------
+    // Geometric longitude on the sphere is uniform (360°). OKLab distances around
+    // the max-chroma belt are not. Each LUT slot k/256 is one geometric degree
+    // bucket; color at that slot comes from arc fraction geomPhiToArc(k/256):
+    //   phi_geo ∈ [0,1)  ↔  arcFrac = phi_geo · (HUE_SPAN/360)  ↔  hue = hueAtArc(arcFrac)
+    const lutTex = new Uint8Array(256 * 4);
+    let totalEquatorArc = 1;
+    let hueAtArc = frac => frac * 2 * Math.PI;
+    let leqAtHue = h => cuspL(h);
+    let roundCAt = h => maxChroma(cuspL(h), Math.cos(h), Math.sin(h));
+    const HUE_FRAC = HUE_SPAN / 360;
+    const geomPhiToArc = phi => (((phi % 1) + 1) % 1) * HUE_FRAC;
+    const lerpHue = (h0, h1, f) => {
+      let dh = h1 - h0;
+      while (dh > Math.PI) dh -= 2 * Math.PI;
+      while (dh < -Math.PI) dh += 2 * Math.PI;
+      return h0 + dh * f;
+    };
+    const lerpHueFrac = (u0, u1, f) => {
+      let du = u1 - u0;
+      if (du > 0.5) du -= 1;
+      if (du < -0.5) du += 1;
+      let u = u0 + du * f;
+      if (u < 0) u += 1;
+      if (u >= 1) u -= 1;
+      return u;
+    };
+    const encodeHue = h => {
+      const u = (((h % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI);
+      const hu = Math.round(u * 65535);
+      return [hu >> 8, hu & 255];
+    };
+    const decodeHue = (hi, lo) => ((hi * 256 + lo) / 65535) * 2 * Math.PI;
+    function rebuildHue() {
+      let Ls = gauss(LcCache, P.cuspSig);
+      const meanL = Ls.reduce((p, c) => p + c, 0) / M;
+      Ls = Ls.map(v => v + (meanL - v) * P.flatten);
+      Ls = Ls.map((v, i) => Math.max(0.03, Math.min(0.99, v + briShift(i / M * 2 * Math.PI))));
+      const Lat = h => { const x = h/(2*Math.PI)*M; let i0=(Math.floor(x)%M+M)%M, i1=(i0+1)%M; return Ls[i0]+(Ls[i1]-Ls[i0])*(x-Math.floor(x)); };
+      leqAtHue = Lat;
+      const rawC = new Array(M);
+      for (let i = 0; i < M; i++) { const h = i/M*2*Math.PI; rawC[i] = maxChroma(Ls[i], Math.cos(h), Math.sin(h)); }
+      const roundC = gauss(rawC, P.round).map((v, i) => Math.min(v, rawC[i]));
+      roundCAt = h => {
+        const x = h / (2 * Math.PI) * M;
+        const i0 = (Math.floor(x) % M + M) % M, i1 = (i0 + 1) % M, tf = x - Math.floor(x);
+        return roundC[i0] + (roundC[i1] - roundC[i0]) * tf;
+      };
+
+      const hs = [], pts = [], arcLen = [0];
+      for (let i = 0; i <= M; i++) {
+        const h = i/M*2*Math.PI, a = Math.cos(h), b = Math.sin(h), L = Lat(h), C = roundCAt(h);
+        hs.push(h); pts.push([L, C*a, C*b]);
+        if (i > 0) arcLen.push(arcLen[i - 1] + Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1], pts[i][2]-pts[i-1][2]));
+      }
+      totalEquatorArc = arcLen[M];
+      hueAtArc = arcFrac => {
+        arcFrac = ((arcFrac % 1) + 1) % 1;
+        const target = arcFrac * totalEquatorArc;
+        let j = 0;
+        while (j < M && arcLen[j + 1] < target) j++;
+        const seg = arcLen[j + 1] - arcLen[j], f = seg > 1e-12 ? (target - arcLen[j]) / seg : 0;
+        return hs[j] + (hs[j + 1] - hs[j]) * f;
+      };
+      for (let k = 0; k < 256; k++) {
+        const phiGeo = k / 256;
+        const h = hueAtArc(geomPhiToArc(phiGeo));
+        const [eh, el] = encodeHue(h);
+        lutTex[k * 4]     = eh;
+        lutTex[k * 4 + 1] = el;
+        lutTex[k * 4 + 2] = Math.round(Lat(h) * 255);
+        lutTex[k * 4 + 3] = Math.round(Math.max(0, Math.min(1, roundCAt(h) * satScale(h) / 0.4)) * 255);
+      }
+    }
+    rebuildHue();
+
+    const hueLUT = new THREE.DataTexture(lutTex, 256, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+    hueLUT.wrapS = THREE.RepeatWrapping;
+    hueLUT.minFilter = THREE.LinearFilter;
+    hueLUT.magFilter = THREE.LinearFilter;
+    hueLUT.needsUpdate = true;
+    sphereMat.uniforms.uHueLUT.value = hueLUT;
+
+    function lutLookup(phi) {
+      const phiGeo = (((phi % 1) + 1) % 1);
+      const x = phiGeo * 256;
+      let i0 = Math.floor(x) % 256; if (i0 < 0) i0 += 256;
+      const i1 = (i0 + 1) % 256, f = x - Math.floor(x);
+      const d = (i, o) => lutTex[i * 4 + o];
+      const u = lerpHueFrac((d(i0, 0) * 256 + d(i0, 1)) / 65535, (d(i1, 0) * 256 + d(i1, 1)) / 65535, f);
+      const h = u * 2 * Math.PI;
+      const ca = Math.cos(h), cb = Math.sin(h);
+      const Leq = (d(i0, 2) + (d(i1, 2) - d(i0, 2)) * f) / 255;
+      const capC = roundCAt(h) * satScale(h);
+      return [ca, cb, Leq, capC];
+    }
+
+    const latTex = new Uint8Array(128 * 4);
+    let gBotCache = new Array(65).fill(0);
+    function rebuildLatBot() {
+      const NS = 64, HUES = 16, gBot = new Array(NS + 1).fill(0);
+      for (let q = 0; q < HUES; q++) {
+        const h = hueAtArc(geomPhiToArc(q / HUES)), a = Math.cos(h), b = Math.sin(h), Leq = leqAtHue(h);
+        const N = 160, Ls = [], arc = [0], pts = [];
+        for (let i = 0; i <= N; i++) {
+          const L = Leq * (1 - i / N), C = maxChroma(L, a, b);
+          Ls.push(L); pts.push([L, C*a, C*b]);
+          if (i > 0) arc.push(arc[i-1] + Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1], pts[i][2]-pts[i-1][2]));
+        }
+        const tot = arc[N];
+        for (let k = 0; k <= NS; k++) {
+          const target = k / NS * tot; let j = 0; while (j < N && arc[j+1] < target) j++;
+          const seg = arc[j+1]-arc[j], f = seg > 1e-9 ? (target-arc[j])/seg : 0;
+          const L = Ls[j] + (Ls[j+1]-Ls[j])*f;
+          gBot[k] += (Leq - L) / Leq / HUES;
+        }
+      }
+      gBotCache = gBot;
+    }
+    function rebuildLat() {
+      const NS = gBotCache.length - 1;
+      const interp = (arr, s) => { const x = s*NS; const i = Math.min(NS-1, Math.floor(x)); return arr[i] + (arr[i+1]-arr[i])*(x-i); };
+      for (let i = 0; i < 128; i++) {
+        const p = i / 127;
+        const g = p >= 0.5 ? Math.pow((p - 0.5) * 2, P.northK) : interp(gBotCache, (0.5 - p) * 2);
+        latTex[i*4] = Math.round(Math.min(Math.max(g, 0), 1) * 255);
+        latTex[i*4+3] = 255;
+      }
+    }
+    rebuildLatBot();
+    rebuildLat();
+
+    const latLUT = new THREE.DataTexture(latTex, 128, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+    latLUT.wrapS = THREE.ClampToEdgeWrapping;
+    latLUT.minFilter = THREE.NearestFilter;
+    latLUT.magFilter = THREE.NearestFilter;
+    latLUT.needsUpdate = true;
+    sphereMat.uniforms.uLatLUT.value = latLUT;
+
+    let rebuildQueued = false;
+    function scheduleRebuild() {
+      if (rebuildQueued) return;
+      rebuildQueued = true;
+      requestAnimationFrame(() => {
+        rebuildQueued = false;
+        rebuildHue(); rebuildLatBot(); rebuildLat();
+        hueLUT.needsUpdate = true; latLUT.needsUpdate = true;
+      });
+    }
+
+    function latLookup(p) {
+      p = Math.min(Math.max(p, 0), 1);
+      const x = p * 127, i0 = Math.floor(x), i1 = Math.min(i0 + 1, 127), f = x - i0;
+      return latTex[i0*4]/255 + (latTex[i1*4]/255 - latTex[i0*4]/255) * f;
+    }
+    function latToL(t, Leq) {
+      const p = Math.asin(Math.min(Math.max(t, -1), 1)) / Math.PI + 0.5;
+      const g = latLookup(p);
+      return [t >= 0 ? Leq + (1 - Leq) * g : Leq * (1 - g), g];
+    }
+
+    let whiteMode = 'rgbw';
+
+    // Reticle + HUD: same gamutSphere math as the shader, evaluated at the
+    // center-view direction (the surface point under the reticle). Not a
+    // precomputed shortcut — live OKLab + LUT lookup. R/G/B/W readout uses
+    // sendRGBW (white-mode decomposition); reticle swatch uses fieldRGB.
+    function geomPhi(d) {
+      return ((Math.atan2(d.z, d.x) / (2 * Math.PI) + 0.5) % 1 + 1) % 1;
+    }
+
+    function fieldRGB(d) {
+      const phi = geomPhi(d);
+      const [ca, cb, Leq, capC] = lutLookup(phi);
+      const t = d.y;
+      const [L, g] = latToL(t, Leq);
+      let C = Math.min(maxChroma(L, ca, cb), capC);
+      if (t >= 0) C *= Math.pow(1 - g, P.northFade);
+      const lin = oklab2lin(L, ca * C, cb * C);
+      return [lin2srgb1(lin[0]), lin2srgb1(lin[1]), lin2srgb1(lin[2])].map(v => Math.round(v * 255));
+    }
+
+    function sendRGBW(d) {
+      const phi = geomPhi(d);
+      const [ca, cb, Leq, capC] = lutLookup(phi);
+      const t = d.y, u = Math.max(0, t);
+      const [Lr, g] = latToL(t, Leq);
+      const L = (whiteMode === 'wonly' && t >= 0) ? Leq : Lr;
+      let C = Math.min(maxChroma(L, ca, cb), capC);
+      if (whiteMode !== 'wonly' && t >= 0) C *= Math.pow(1 - g, P.northFade);
+      const lin = oklab2lin(L, ca * C, cb * C);
+      let rgb = [lin2srgb1(lin[0]), lin2srgb1(lin[1]), lin2srgb1(lin[2])];
+      if (whiteMode === 'wonly' && t >= 0) rgb = rgb.map(v => v * (1 - u));
+      return [rgb[0], rgb[1], rgb[2], u].map(v => Math.round(v * 255));
+    }
+
+    // ---------- HUD ----------
+    const reticle = document.getElementById('reticle');
+    const dot = document.getElementById('dot');
+    const hint = document.getElementById('hint');
+    const modeBtn = document.getElementById('mode');
+    const out = { R: document.getElementById('vR'), G: document.getElementById('vG'),
+                  B: document.getElementById('vB'), W: document.getElementById('vW') };
+
+    function paintHUD(field, sent) {
+      reticle.style.backgroundColor = `rgb(${field[0]},${field[1]},${field[2]})`;
+      out.R.textContent = sent[0]; out.G.textContent = sent[1];
+      out.B.textContent = sent[2]; out.W.textContent = sent[3];
+    }
+
+    // ---------- WLED link ----------
+    let lastSent = 0, pending = null, linkSeen = false;
+
+    function sendToWLED([r, g, b, w]) {
+      fetch('/json/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on: true, seg: [{ col: [[r, g, b, w]] }] })
+      }).then(() => {
+        linkSeen = true; dot.className = 'live'; dot.title = 'Sending to WLED';
+      }).catch(() => {
+        dot.className = linkSeen ? 'off' : ''; dot.title = 'No WLED connection';
+      });
+    }
+
+    function queueSend(rgbw) {
+      const now = performance.now();
+      if (now - lastSent >= SEND_MS) { lastSent = now; pending = null; sendToWLED(rgbw); }
+      else { pending = rgbw; }
+    }
+    setInterval(() => {
+      if (pending && performance.now() - lastSent >= SEND_MS) {
+        lastSent = performance.now(); const p = pending; pending = null; sendToWLED(p);
+      }
+    }, SEND_MS);
+
+    // ---------- initial orientation from current WLED color (best effort) ----------
+    function srgb2lin1(x) {
+      x /= 255;
+      return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    }
+    function rgbToOkLh(r, g, b) {
+      const R = srgb2lin1(r), G = srgb2lin1(g), B = srgb2lin1(b);
+      const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+      const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+      const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+      const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
+      const a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+      const bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+      return [L, Math.atan2(bb, a)];
+    }
+    function orientTo(r, g, b) {
+      const [L, h] = rgbToOkLh(r, g, b);
+      let best = 0, bestd = 1e9;
+      for (let i = 0; i < 256; i++) {
+        const hi = decodeHue(lutTex[i * 4], lutTex[i * 4 + 1]);
+        let dd = Math.abs(((hi - h + Math.PI) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) - Math.PI);
+        if (dd < bestd) { bestd = dd; best = i; }
+      }
+      const phi = best / 256, Leq = lutTex[best*4+2] / 255;
+      let gT, side;
+      if (L >= Leq) { gT = (1 - Leq > 1e-6) ? (L - Leq) / (1 - Leq) : 0; side = 1; }
+      else          { gT = (Leq > 1e-6) ? (Leq - L) / Leq : 0; side = -1; }
+      gT = Math.max(0, Math.min(1, gT));
+      const loI = side > 0 ? 64 : 0, hiI = side > 0 ? 128 : 64;
+      let bi = loI, bestg = 1e9;
+      for (let i = loI; i < hiI; i++) { const dd = Math.abs(latTex[i*4]/255 - gT); if (dd < bestg) { bestg = dd; bi = i; } }
+      const lat = (bi / 127 - 0.5) * Math.PI, ch = Math.cos(lat);
+      const az = (phi - 0.5) * 2 * Math.PI;
+      camera.position.set(
+        CAM_R * ch * Math.cos(az),
+        CAM_R * Math.sin(lat),
+        CAM_R * ch * Math.sin(az)
+      );
+      controls.update();
+    }
+    fetch('/json/state')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(s => {
+        linkSeen = true; dot.className = 'live';
+        const c = s && s.seg && s.seg[0] && s.seg[0].col && s.seg[0].col[0];
+        if (c && (c[0] + c[1] + c[2] > 0)) orientTo(c[0], c[1], c[2]);
+      })
+      .catch(() => { dot.className = ''; });
+
+    // ---------- interaction wiring ----------
+    let hinted = false;
+    controls.addEventListener('change', () => {
+      if (!hinted) { hinted = true; hint.style.opacity = '0'; }
+    });
+
+    // ---------- viewport-aware camera scaling ----------
+    function updateCameraDistance() {
+      const w = window.innerWidth, h = window.innerHeight;
+      const limitingDim = Math.min(w, h);
+      const baseScreenSize = 800; // reference screen size
+      // Scale CAM_R inversely with screen size: smaller screens need closer camera
+      CAM_R = 150 * (limitingDim / baseScreenSize);
+    }
+
+    // ---------- resize ----------
+    function resize() {
+      const w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      updateCameraDistance();
+      camera.position.set(0, 0, CAM_R);
+      controls.update();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ---------- loop ----------
+    let prev = '';
+    function update(force) {
+      const d = camera.position.clone().normalize();
+      const field = fieldRGB(d);
+      const sent = sendRGBW(d);
+      const key = whiteMode + '|' + sent.join(',');
+      if (force || key !== prev) {
+        prev = key;
+        paintHUD(field, sent);
+        queueSend(sent);
+      }
+    }
+
+    modeBtn.addEventListener('click', () => {
+      whiteMode = (whiteMode === 'rgbw') ? 'wonly' : 'rgbw';
+      modeBtn.textContent = (whiteMode === 'rgbw') ? 'RGB + W' : 'W only';
+      update(true);
+    });
+
+    // ---------- tuning panel ----------
+    (function buildPanel() {
+      const panel = document.getElementById('panel');
+      document.getElementById('gear').addEventListener('click', () => panel.classList.toggle('open'));
+      const rows = [
+        { h: 'Smoothness' },
+        { k: 'flatten', label: 'flat',  min: 0, max: 1,  step: 0.01 },
+        { k: 'round',   label: 'round', min: 0, max: 30, step: 1 },
+        { k: 'cuspSig', label: 'cusp',  min: 0, max: 40, step: 1 },
+        { k: 'dither',  label: 'dither',min: 0, max: 3,  step: 0.1, uniform: 'uDither' },
+        { h: 'White mix ↑' },
+        { k: 'northK',  label: 'north', min: 1, max: 5,  step: 0.1 },
+        { k: 'northFade', label: 'fade', min: 1, max: 3, step: 0.1, uniform: 'uNorthFade' },
+        { h: 'Hue' },
+        { k: 'hueCompress', label: 'compress', min: 0.3, max: 1, step: 0.05 },
+        { h: 'Saturation' },
+        { k: 'sat',     label: 'all', min: 0, max: 1, step: 0.01 },
+        { k: 'satA0', label: 'R', min: 0, max: 1, step: 0.01, color: '#ff6b6b' },
+        { k: 'satA1', label: 'Y', min: 0, max: 1, step: 0.01, color: '#ffd43b' },
+        { k: 'satA2', label: 'G', min: 0, max: 1, step: 0.01, color: '#51cf66' },
+        { k: 'satA3', label: 'C', min: 0, max: 1, step: 0.01, color: '#22d3ee' },
+        { k: 'satA4', label: 'B', min: 0, max: 1, step: 0.01, color: '#5c9dff' },
+        { k: 'satA5', label: 'M', min: 0, max: 1, step: 0.01, color: '#e879f9' },
+        { h: 'Brightness' },
+        { k: 'briA0', label: 'R', min: -0.2, max: 0.2, step: 0.01, color: '#ff6b6b' },
+        { k: 'briA1', label: 'Y', min: -0.2, max: 0.2, step: 0.01, color: '#ffd43b' },
+        { k: 'briA2', label: 'G', min: -0.2, max: 0.2, step: 0.01, color: '#51cf66' },
+        { k: 'briA3', label: 'C', min: -0.2, max: 0.2, step: 0.01, color: '#22d3ee' },
+        { k: 'briA4', label: 'B', min: -0.2, max: 0.2, step: 0.01, color: '#5c9dff' },
+        { k: 'briA5', label: 'M', min: -0.2, max: 0.2, step: 0.01, color: '#e879f9' }
+      ];
+      const arrOf = k => k.startsWith('satA') ? P.satA : k.startsWith('briA') ? P.briA : null;
+      const get = k => { const a = arrOf(k); return a ? a[+k.slice(4)] : P[k]; };
+      const set = (k, v) => { const a = arrOf(k); if (a) a[+k.slice(4)] = v; else P[k] = v; };
+      for (const r of rows) {
+        if (r.h) { const h = document.createElement('h4'); h.textContent = r.h; panel.appendChild(h); continue; }
+        const row = document.createElement('div'); row.className = 'row';
+        const lab = document.createElement('label'); lab.textContent = r.label; if (r.color) lab.style.color = r.color;
+        const inp = document.createElement('input'); inp.type = 'range'; inp.min = r.min; inp.max = r.max; inp.step = r.step;
+        const val = document.createElement('span'); val.className = 'val';
+        const dp = r.step < 1 ? (r.step < 0.1 ? 2 : 1) : 0;
+        inp.value = get(r.k); val.textContent = (+get(r.k)).toFixed(dp);
+        inp.addEventListener('input', () => {
+          const v = parseFloat(inp.value); set(r.k, v); val.textContent = v.toFixed(dp);
+          if (r.uniform) sphereMat.uniforms[r.uniform].value = v;
+          else scheduleRebuild();
+        });
+        row.append(lab, inp, val); panel.appendChild(row);
+      }
+      const crow = document.createElement('div'); crow.className = 'row copy';
+      const btn = document.createElement('button'); btn.id = 'copyBtn'; btn.textContent = 'copy values';
+      btn.addEventListener('click', () => {
+        const txt = `flatten:${P.flatten} round:${P.round} cuspSig:${P.cuspSig} northK:${P.northK} northFade:${P.northFade} dither:${P.dither} sat:${P.sat} satA:[${P.satA.join(',')}] briA:[${P.briA.join(',')}]`;
+        if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(() => {});
+        btn.textContent = 'copied ✓'; setTimeout(() => btn.textContent = 'copy values', 1200);
+      });
+      crow.appendChild(btn); panel.appendChild(crow);
+    })();
+
+    function loop() {
+      requestAnimationFrame(loop);
+      controls.update();
+      camera.position.setLength(CAM_R);
+      update(false);
+      renderer.render(scene, camera);
+    }
+    loop();
+  </script>
+</body>
+
+</html>

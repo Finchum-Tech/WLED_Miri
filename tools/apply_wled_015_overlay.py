@@ -37,6 +37,9 @@ replace_once(
     '#include "wled.h"\n',
     '#include "wled.h"\n\n#ifdef USERMOD_UI\n'
     '  #include "../usermods/usermod_ui/usermod_ui.h"\n'
+    '#endif\n\n'
+    '#ifdef USERMOD_PCA9634\n'
+    '  #include "../usermods/usermod_v2_pca9634/usermod_v2_pca9634.cpp"\n'
     '#endif\n',
 )
 replace_once(
@@ -45,6 +48,9 @@ replace_once(
     '  //UsermodManager::add(new MyExampleUsermod());\n\n'
     '  #ifdef USERMOD_UI\n'
     '  UsermodManager::add(new UsermodUI());\n'
+    '  #endif\n\n'
+    '  #ifdef USERMOD_PCA9634\n'
+    '  UsermodManager::add(new UsermodPCA9634());\n'
     '  #endif\n',
 )
 
